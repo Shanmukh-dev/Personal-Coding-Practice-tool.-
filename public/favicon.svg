@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <style>
+    :root {
+      --bg-color: #f7f9fb;
+      --border-color: #e2e8f0;
+      --text-color: #191c1e;
+    }
+    @media (prefers-color-scheme: light) {
+      :root {
+        --bg-color: #0b1326;
+        --border-color: #334155;
+        --text-color: #dae2fd;
+      }
+    }
+  </style>
+  <rect width="100" height="100" rx="12" fill="var(--bg-color)" stroke="var(--border-color)" stroke-width="2"/>
+  <text 
+    x="50" 
+    y="53" 
+    font-family="Lora, Georgia, 'Times New Roman', serif" 
+    font-weight="bold" 
+    font-size="68" 
+    text-anchor="middle" 
+    dominant-baseline="central" 
+    fill="var(--text-color)"
+  >Ω</text>
+</svg>

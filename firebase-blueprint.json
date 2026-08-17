@@ -1,0 +1,207 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "User profile and learning preference settings",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "email": { "type": "string" },
+        "displayName": { "type": "string" },
+        "photoURL": { "type": "string" },
+        "dailyLimit": { "type": "number" },
+        "targetInterviewLevel": { "type": "string" },
+        "selectedTopics": { "type": "array" },
+        "onboardingCompleted": { "type": "boolean" },
+        "createdAt": { "type": "number" }
+      },
+      "required": ["uid"]
+    },
+    "Problem": {
+      "title": "Problem",
+      "description": "DSA problem in global catalog",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "url": { "type": "string" },
+        "platform": { "type": "string" },
+        "difficulty": { "type": "string" },
+        "patternCategory": { "type": "string" },
+        "tags": { "type": "array" },
+        "addedBy": { "type": "string" }
+      },
+      "required": ["id", "title"]
+    },
+    "PlatformConnection": {
+      "title": "PlatformConnection",
+      "description": "Connected coding platform details",
+      "type": "object",
+      "properties": {
+        "platform": { "type": "string" },
+        "username": { "type": "string" },
+        "connectedAt": { "type": "number" },
+        "lastSyncedAt": { "type": "number" },
+        "status": { "type": "string" },
+        "solvedCount": { "type": "number" },
+        "verified": { "type": "boolean" }
+      }
+    },
+    "DailyQueueItem": {
+      "title": "DailyQueueItem",
+      "description": "Problem scheduled in daily queue",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "problemId": { "type": "string" },
+        "date": { "type": "string" },
+        "status": { "type": "string" },
+        "assignedReason": { "type": "string" },
+        "estimatedTimeMinutes": { "type": "number" },
+        "priorityScore": { "type": "number" }
+      }
+    },
+    "RevisionCard": {
+      "title": "RevisionCard",
+      "description": "Spaced repetition revision card",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "problemId": { "type": "string" },
+        "intervalDays": { "type": "number" },
+        "easeFactor": { "type": "number" },
+        "repetitionCount": { "type": "number" },
+        "lastReviewedAt": { "type": "number" },
+        "nextReviewAt": { "type": "number" },
+        "status": { "type": "string" }
+      }
+    },
+    "Reflection": {
+      "title": "Reflection",
+      "description": "User reflection after solving a problem",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "problemId": { "type": "string" },
+        "timeTakenSeconds": { "type": "number" },
+        "perceivedDifficulty": { "type": "string" },
+        "keyTakeaways": { "type": "string" },
+        "createdAt": { "type": "number" }
+      }
+    },
+    "SolvingRecord": {
+      "title": "SolvingRecord",
+      "description": "Record of a solved problem",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "problemId": { "type": "string" },
+        "platform": { "type": "string" },
+        "solvedAt": { "type": "number" }
+      }
+    },
+    "PatternMastery": {
+      "title": "PatternMastery",
+      "description": "User mastery level for a DSA pattern",
+      "type": "object",
+      "properties": {
+        "patternId": { "type": "string" },
+        "level": { "type": "string" },
+        "solvedCount": { "type": "number" },
+        "successRate": { "type": "number" }
+      }
+    },
+    "MistakeEntry": {
+      "title": "MistakeEntry",
+      "description": "Mistake logged in journal",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "problemId": { "type": "string" },
+        "patternId": { "type": "string" },
+        "category": { "type": "string" },
+        "description": { "type": "string" }
+      }
+    },
+    "LearningMemory": {
+      "title": "LearningMemory",
+      "description": "Synthesized learning memory for a problem",
+      "type": "object",
+      "properties": {
+        "problemId": { "type": "string" },
+        "summary": { "type": "string" }
+      }
+    },
+    "AICoachMessage": {
+      "title": "AICoachMessage",
+      "description": "Chat message with AI Coach",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "role": { "type": "string" },
+        "content": { "type": "string" },
+        "timestamp": { "type": "number" }
+      }
+    },
+    "UserGamification": {
+      "title": "UserGamification",
+      "description": "User gamification state",
+      "type": "object",
+      "properties": {
+        "xp": { "type": "number" },
+        "level": { "type": "number" },
+        "currentStreak": { "type": "number" }
+      }
+    }
+  },
+  "firestore": {
+    "/problems/{problemId}": {
+      "schema": { "$ref": "#/entities/Problem" },
+      "description": "Global problem catalog"
+    },
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/UserProfile" },
+      "description": "User profile document"
+    },
+    "/users/{userId}/platformConnections/{platformId}": {
+      "schema": { "$ref": "#/entities/PlatformConnection" },
+      "description": "User connected platforms"
+    },
+    "/users/{userId}/dailyQueue/{itemId}": {
+      "schema": { "$ref": "#/entities/DailyQueueItem" },
+      "description": "User daily practice queue"
+    },
+    "/users/{userId}/revisions/{cardId}": {
+      "schema": { "$ref": "#/entities/RevisionCard" },
+      "description": "User revision cards"
+    },
+    "/users/{userId}/reflections/{reflectionId}": {
+      "schema": { "$ref": "#/entities/Reflection" },
+      "description": "User problem reflections"
+    },
+    "/users/{userId}/solvings/{recordId}": {
+      "schema": { "$ref": "#/entities/SolvingRecord" },
+      "description": "User solving records"
+    },
+    "/users/{userId}/patternMasteries/{patternId}": {
+      "schema": { "$ref": "#/entities/PatternMastery" },
+      "description": "User pattern masteries"
+    },
+    "/users/{userId}/mistakes/{mistakeId}": {
+      "schema": { "$ref": "#/entities/MistakeEntry" },
+      "description": "User mistake journal entries"
+    },
+    "/users/{userId}/memories/{problemId}": {
+      "schema": { "$ref": "#/entities/LearningMemory" },
+      "description": "User learning memories"
+    },
+    "/users/{userId}/coachMessages/{messageId}": {
+      "schema": { "$ref": "#/entities/AICoachMessage" },
+      "description": "User AI coach messages"
+    },
+    "/users/{userId}/gamification/{docId}": {
+      "schema": { "$ref": "#/entities/UserGamification" },
+      "description": "User gamification status"
+    }
+  }
+}

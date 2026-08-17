@@ -1,0 +1,309 @@
+@import "tailwindcss";
+
+@layer base {
+  :root {
+    color-scheme: light dark;
+    --font-heading: 'Geist', 'Hanken Grotesk', sans-serif;
+    --font-body: 'Geist', 'Inter', sans-serif;
+    --font-mono: 'JetBrains Mono', monospace;
+
+    /* Base Obsidian Slate (Dark Mode Default) */
+    --surface-bg: #0b1326;
+    --surface-dim: #0b1326;
+    --surface-bright: #31394d;
+    --surface-container-lowest: #060e20;
+    --surface-container-low: #131b2e;
+    --surface-container: #171f33;
+    --surface-container-high: #222a3d;
+    --surface-container-highest: #2d3449;
+    --on-surface: #dae2fd;
+    --on-surface-variant: #c5c6cb;
+    --border-color: #334155;
+    --text-primary: #dae2fd;
+    --text-secondary: #c5c6cb;
+    --text-muted: #8e9195;
+    --accent-primary: #e2e8f0;
+  }
+
+  html.light {
+    color-scheme: light;
+    --font-heading: 'Hanken Grotesk', sans-serif;
+    --font-body: 'Inter', sans-serif;
+    --font-mono: 'JetBrains Mono', monospace;
+
+    /* Vellum Technical (Light Mode) Palette */
+    --surface-bg: #f7f9fb;
+    --surface-dim: #d8dadc;
+    --surface-bright: #f7f9fb;
+    --surface-container-lowest: #ffffff;
+    --surface-container-low: #f2f4f6;
+    --surface-container: #eceef0;
+    --surface-container-high: #e6e8ea;
+    --surface-container-highest: #e0e3e5;
+    --on-surface: #191c1e;
+    --on-surface-variant: #45464d;
+    --border-color: #e2e8f0;
+    --text-primary: #191c1e;
+    --text-secondary: #45464d;
+    --text-muted: #76777d;
+    --accent-primary: #0f172a;
+  }
+
+  html.dark {
+    color-scheme: dark;
+    --font-heading: 'Geist', 'Hanken Grotesk', sans-serif;
+    --font-body: 'Geist', 'Inter', sans-serif;
+    --font-mono: 'JetBrains Mono', monospace;
+
+    /* Obsidian Slate (Dark Mode) Palette */
+    --surface-bg: #0b1326;
+    --surface-dim: #0b1326;
+    --surface-bright: #31394d;
+    --surface-container-lowest: #060e20;
+    --surface-container-low: #131b2e;
+    --surface-container: #171f33;
+    --surface-container-high: #222a3d;
+    --surface-container-highest: #2d3449;
+    --on-surface: #dae2fd;
+    --on-surface-variant: #c5c6cb;
+    --border-color: #334155;
+    --text-primary: #dae2fd;
+    --text-secondary: #c5c6cb;
+    --text-muted: #8e9195;
+    --accent-primary: #e2e8f0;
+  }
+
+  body {
+    background-color: var(--surface-bg);
+    color: var(--text-primary);
+    font-family: var(--font-body);
+    transition: background-color 0.25s ease, color 0.25s ease;
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    font-family: var(--font-heading);
+    letter-spacing: -0.015em;
+  }
+
+  .font-mono {
+    font-family: var(--font-mono);
+  }
+
+  /* Global Custom Scrollbar */
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: var(--surface-bg);
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: var(--border-color);
+    border-radius: 9999px;
+    border: 2px solid var(--surface-bg);
+    transition: background-color 0.2s ease, border-color 0.2s ease;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background: var(--text-muted);
+  }
+
+  ::-webkit-scrollbar-thumb:active {
+    background: var(--accent-primary);
+  }
+
+  ::-webkit-scrollbar-corner {
+    background: var(--surface-bg);
+  }
+
+  html, body, * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--border-color) var(--surface-bg);
+  }
+}
+
+/* Light Theme Overrides for Tailwind Zinc Color Classes */
+html.light .bg-zinc-950 {
+  background-color: #f7f9fb !important;
+}
+
+html.light .bg-zinc-950\/90,
+html.light .bg-zinc-950\/80,
+html.light .bg-zinc-950\/60,
+html.light .bg-zinc-950\/70 {
+  background-color: rgba(247, 249, 251, 0.95) !important;
+}
+
+html.light .bg-zinc-900 {
+  background-color: #ffffff !important;
+}
+
+html.light .bg-zinc-900\/80,
+html.light .bg-zinc-900\/60,
+html.light .bg-zinc-900\/50,
+html.light .bg-zinc-900\/40 {
+  background-color: #f2f4f6 !important;
+}
+
+html.light .bg-zinc-800 {
+  background-color: #eceef0 !important;
+}
+
+html.light .bg-zinc-800\/80,
+html.light .bg-zinc-800\/60 {
+  background-color: #e6e8ea !important;
+}
+
+html.light .border-zinc-800,
+html.light .border-zinc-800\/80,
+html.light .border-zinc-800\/60,
+html.light .border-zinc-700,
+html.light .border-zinc-700\/80 {
+  border-color: #e2e8f0 !important;
+}
+
+html.light .text-zinc-100,
+html.light .text-zinc-200 {
+  color: #191c1e !important;
+}
+
+html.light .text-zinc-300,
+html.light .text-zinc-400 {
+  color: #45464d !important;
+}
+
+html.light .text-zinc-500 {
+  color: #76777d !important;
+}
+
+html.light .hover\:bg-zinc-900\/80:hover,
+html.light .hover\:bg-zinc-800:hover {
+  background-color: #e6e8ea !important;
+}
+
+html.light .hover\:bg-zinc-700:hover {
+  background-color: #d8dadc !important;
+}
+
+html.light .selection\:bg-slate-300\/20 {
+  background-color: rgba(15, 23, 42, 0.15) !important;
+}
+
+html.light .selection\:text-slate-100,
+html.light .text-slate-100,
+html.light .text-slate-200 {
+  color: #0f172a !important;
+}
+
+html.light .text-slate-300,
+html.light .text-slate-400 {
+  color: #334155 !important;
+}
+
+html.light .bg-slate-100\/10,
+html.light .bg-slate-100\/20 {
+  background-color: #eceef0 !important;
+}
+
+html.light .border-slate-300\/30,
+html.light .border-slate-300\/20 {
+  border-color: #cbd5e1 !important;
+}
+
+/* Dark Mode Overrides for Obsidian Slate Palette */
+html.dark .bg-zinc-950 {
+  background-color: #0b1326 !important;
+}
+
+html.dark .bg-zinc-900 {
+  background-color: #131b2e !important;
+}
+
+html.dark .bg-zinc-900\/80,
+html.dark .bg-zinc-900\/60 {
+  background-color: #171f33 !important;
+}
+
+html.dark .bg-zinc-800 {
+  background-color: #222a3d !important;
+}
+
+html.dark .border-zinc-800,
+html.dark .border-zinc-700 {
+  border-color: #334155 !important;
+}
+
+html.dark .text-zinc-100,
+html.dark .text-zinc-200 {
+  color: #dae2fd !important;
+}
+
+html.dark .text-zinc-300,
+html.dark .text-zinc-400 {
+  color: #c5c6cb !important;
+}
+
+html.dark .text-zinc-500 {
+  color: #8e9195 !important;
+}
+
+/* Custom Scrollbar Utility Classes */
+.custom-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-color) transparent;
+}
+
+.custom-scrollbar::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: var(--border-color);
+  border-radius: 9999px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: var(--text-muted);
+}
+
+.custom-scrollbar-thin {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(113, 113, 122, 0.4) transparent;
+}
+
+.custom-scrollbar-thin::-webkit-scrollbar {
+  width: 4px;
+  height: 4px;
+}
+
+.custom-scrollbar-thin::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.custom-scrollbar-thin::-webkit-scrollbar-thumb {
+  background: rgba(113, 113, 122, 0.4);
+  border-radius: 9999px;
+}
+
+.custom-scrollbar-thin::-webkit-scrollbar-thumb:hover {
+  background: var(--text-muted);
+}
+
+.custom-scrollbar-indigo::-webkit-scrollbar-thumb:hover {
+  background: #6366f1;
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
