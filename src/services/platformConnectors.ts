@@ -85,10 +85,10 @@ export async function syncPlatformAccount(
 // Generates Userscript / Extension snippet for users to run on any coding platform
 export function generateUserscriptSnippet(userId: string, appUrl: string): string {
   return `// ==UserScript==
-// @name         AlgoOS Completion Sync
-// @namespace    https://algoos.app
+// @name         Omega Completion Sync
+// @namespace    https://omega.app
 // @version      1.0
-// @description  Automatically sends problem completion events to AlgoOS
+// @description  Automatically sends problem completion events to Omega
 // @match        https://leetcode.com/problems/*
 // @match        https://codeforces.com/problemset/problem/*
 // @match        https://www.codechef.com/problems/*
@@ -99,7 +99,7 @@ export function generateUserscriptSnippet(userId: string, appUrl: string): strin
 
 (function() {
     'use strict';
-    // AlgoOS listener active for user: ${userId}
-    console.log('[AlgoOS] Auto-sync connector ready at ${appUrl}');
+    // Omega listener active for user: ${userId}
+    console.log('[Omega] Auto-sync connector ready at ${appUrl}');
 })();`;
 }

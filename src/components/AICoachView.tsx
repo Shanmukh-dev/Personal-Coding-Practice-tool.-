@@ -54,7 +54,7 @@ export const AICoachView: React.FC<AICoachViewProps> = ({
             <Bot className="w-5 h-5" />
           </div>
           <div className="min-w-0">
-            <h1 className="font-bold text-base text-zinc-100 truncate">AlgoOS Adaptive Coach</h1>
+            <h1 className="font-bold text-base text-zinc-100 truncate">Omega Adaptive Coach</h1>
             <p className="text-xs text-zinc-400 truncate">
               Context-aware engineering mentor grounded in your real DSA activity.
             </p>
@@ -70,7 +70,7 @@ export const AICoachView: React.FC<AICoachViewProps> = ({
               <Bot className="w-6 h-6" />
             </div>
             <h3 className="font-bold text-zinc-200 text-sm">
-              Hello! I am your AlgoOS Adaptive DSA Coach.
+              Hello! I am your Omega Adaptive DSA Coach.
             </h3>
             <p className="text-xs text-zinc-400 leading-relaxed">
               {!hasData
@@ -142,7 +142,7 @@ export const AICoachView: React.FC<AICoachViewProps> = ({
           type="text"
           value={inputText}
           onChange={(e) => setInputText(e.target.value)}
-          placeholder="Ask AlgoOS Coach about your DSA progress or pattern strategies..."
+          placeholder="Ask Omega Coach about your DSA progress or pattern strategies..."
           className="flex-1 bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-2.5 text-xs text-zinc-100 placeholder-zinc-600 focus:outline-none focus:border-slate-300"
         />
         <button

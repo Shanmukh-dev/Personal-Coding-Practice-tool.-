@@ -1215,6 +1215,8 @@ export default function App() {
           {activeTab === 'connectors' && (
             <PlatformConnectorsView
               userId={currentUser?.uid || ''}
+              userEmail={currentUser?.email}
+              userDisplayName={userProfile?.displayName || currentUser?.displayName}
               isAuthenticated={!!currentUser}
               connections={connections}
               onConnectPlatform={handleConnectPlatform}

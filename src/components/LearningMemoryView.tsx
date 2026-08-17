@@ -108,7 +108,7 @@ export const LearningMemoryView: React.FC<LearningMemoryViewProps> = ({ memories
         </div>
         <h2 className="text-xl font-bold text-zinc-200">No learning history yet.</h2>
         <p className="text-xs text-zinc-400 max-w-sm mx-auto mt-1">
-          Complete practice problems and reflections to build your permanent long-term DSA memory on AlgoOS.
+          Complete practice problems and reflections to build your permanent long-term DSA memory on Omega.
         </p>
       </div>
     );

@@ -1,0 +1,470 @@
+/* Omega Extension - LeetCode Injected Content Styles */
+
+#omega-extension-modal-overlay {
+  position: fixed !important;
+  inset: 0 !important;
+  z-index: 2147483647 !important;
+  background-color: rgba(9, 9, 11, 0.88) !important;
+  backdrop-filter: blur(12px) !important;
+  -webkit-backdrop-filter: blur(12px) !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  padding: 16px !important;
+  box-sizing: border-box !important;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif !important;
+  animation: omega-fade-in 0.2s cubic-bezier(0.16, 1, 0.3, 1) forwards !important;
+  user-select: none !important;
+}
+
+@keyframes omega-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes omega-scale-up {
+  from {
+    opacity: 0;
+    transform: scale(0.95) translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+@keyframes omega-shake {
+  0%, 100% { transform: translateX(0); }
+  20%, 60% { transform: translateX(-6px); }
+  40%, 80% { transform: translateX(6px); }
+}
+
+.omega-shake-anim {
+  animation: omega-shake 0.35s ease-in-out !important;
+}
+
+#omega-extension-modal-box {
+  background-color: #18181b !important;
+  border: 1px solid #27272a !important;
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.7), 0 0 0 1px rgba(255, 255, 255, 0.05) !important;
+  border-radius: 16px !important;
+  width: 100% !important;
+  max-width: 540px !important;
+  max-height: 90vh !important;
+  display: flex !important;
+  flex-direction: column !important;
+  color: #f4f4f5 !important;
+  overflow: hidden !important;
+  animation: omega-scale-up 0.25s cubic-bezier(0.16, 1, 0.3, 1) forwards !important;
+  text-align: left !important;
+}
+
+/* Header */
+.omega-modal-header {
+  padding: 18px 22px 14px 22px !important;
+  border-bottom: 1px solid #27272a !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  background-color: #121215 !important;
+  flex-shrink: 0 !important;
+}
+
+.omega-brand {
+  display: flex !important;
+  align-items: center !important;
+  gap: 12px !important;
+}
+
+.omega-logo-badge {
+  width: 36px !important;
+  height: 36px !important;
+  background-color: #0b1326 !important;
+  border: 1px solid #334155 !important;
+  border-radius: 8px !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  flex-shrink: 0 !important;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.3) !important;
+}
+
+.omega-logo-char {
+  font-family: 'Lora', Georgia, serif !important;
+  font-weight: bold !important;
+  font-size: 24px !important;
+  color: #dae2fd !important;
+  line-height: 1 !important;
+}
+
+.omega-header-titles {
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 2px !important;
+}
+
+.omega-header-sub {
+  font-size: 10px !important;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace !important;
+  color: #a1a1aa !important;
+  text-transform: uppercase !important;
+  letter-spacing: 0.05em !important;
+  display: flex !important;
+  align-items: center !important;
+  gap: 6px !important;
+}
+
+.omega-pill-pulse {
+  display: inline-block !important;
+  width: 6px !important;
+  height: 6px !important;
+  border-radius: 50% !important;
+  background-color: #10b981 !important;
+  box-shadow: 0 0 8px #10b981 !important;
+}
+
+.omega-header-title {
+  font-size: 15px !important;
+  font-weight: 700 !important;
+  color: #ffffff !important;
+  margin: 0 !important;
+  line-height: 1.2 !important;
+}
+
+.omega-lock-badge {
+  font-size: 10px !important;
+  font-family: ui-monospace, SFMono-Regular, monospace !important;
+  background: rgba(245, 158, 11, 0.1) !important;
+  border: 1px solid rgba(245, 158, 11, 0.3) !important;
+  color: #fbbf24 !important;
+  padding: 4px 8px !important;
+  border-radius: 6px !important;
+  font-weight: 600 !important;
+  display: flex !important;
+  align-items: center !important;
+  gap: 4px !important;
+}
+
+/* Modal Body */
+.omega-modal-body {
+  padding: 18px 22px !important;
+  overflow-y: auto !important;
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 16px !important;
+  flex: 1 1 auto !important;
+}
+
+.omega-modal-body::-webkit-scrollbar {
+  width: 6px !important;
+}
+.omega-modal-body::-webkit-scrollbar-track {
+  background: #18181b !important;
+}
+.omega-modal-body::-webkit-scrollbar-thumb {
+  background: #27272a !important;
+  border-radius: 4px !important;
+}
+
+/* Problem info box */
+.omega-problem-card {
+  background-color: #09090b !important;
+  border: 1px solid #27272a !important;
+  border-radius: 10px !important;
+  padding: 12px 14px !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  gap: 12px !important;
+}
+
+.omega-problem-title {
+  font-size: 14px !important;
+  font-weight: 700 !important;
+  color: #f4f4f5 !important;
+  white-space: nowrap !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+}
+
+.omega-problem-meta {
+  font-size: 11px !important;
+  color: #71717a !important;
+  font-family: ui-monospace, SFMono-Regular, monospace !important;
+  margin-top: 2px !important;
+}
+
+.omega-diff-badge {
+  font-size: 10px !important;
+  font-weight: 700 !important;
+  font-family: ui-monospace, SFMono-Regular, monospace !important;
+  padding: 3px 8px !important;
+  border-radius: 6px !important;
+  text-transform: uppercase !important;
+  flex-shrink: 0 !important;
+}
+
+.omega-diff-Easy {
+  background: rgba(16, 185, 129, 0.15) !important;
+  color: #34d399 !important;
+  border: 1px solid rgba(16, 185, 129, 0.3) !important;
+}
+
+.omega-diff-Medium {
+  background: rgba(245, 158, 11, 0.15) !important;
+  color: #fbbf24 !important;
+  border: 1px solid rgba(245, 158, 11, 0.3) !important;
+}
+
+.omega-diff-Hard {
+  background: rgba(239, 68, 68, 0.15) !important;
+  color: #f87171 !important;
+  border: 1px solid rgba(239, 68, 68, 0.3) !important;
+}
+
+/* Sections */
+.omega-section {
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 6px !important;
+}
+
+.omega-label {
+  font-size: 11px !important;
+  font-weight: 600 !important;
+  font-family: ui-monospace, SFMono-Regular, monospace !important;
+  color: #a1a1aa !important;
+  text-transform: uppercase !important;
+  letter-spacing: 0.04em !important;
+  display: flex !important;
+  justify-content: space-between !important;
+  align-items: center !important;
+}
+
+.omega-label-status {
+  font-size: 11px !important;
+  color: #fbbf24 !important;
+  font-weight: 700 !important;
+  text-transform: none !important;
+}
+
+/* Star rating */
+.omega-stars-row {
+  display: flex !important;
+  align-items: center !important;
+  gap: 8px !important;
+}
+
+.omega-star-btn {
+  background: #09090b !important;
+  border: 1px solid #27272a !important;
+  border-radius: 8px !important;
+  width: 42px !important;
+  height: 38px !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  cursor: pointer !important;
+  color: #52525b !important;
+  transition: all 0.15s ease !important;
+}
+
+.omega-star-btn:hover {
+  border-color: #f59e0b !important;
+  color: #fbbf24 !important;
+  transform: translateY(-1px) !important;
+}
+
+.omega-star-btn.active {
+  background: rgba(245, 158, 11, 0.12) !important;
+  border-color: rgba(245, 158, 11, 0.5) !important;
+  color: #f59e0b !important;
+}
+
+.omega-star-btn svg {
+  width: 20px !important;
+  height: 20px !important;
+  fill: currentColor !important;
+}
+
+/* Option Grid */
+.omega-grid-3 {
+  display: grid !important;
+  grid-template-columns: repeat(3, 1fr) !important;
+  gap: 8px !important;
+}
+
+.omega-grid-2 {
+  display: grid !important;
+  grid-template-columns: repeat(2, 1fr) !important;
+  gap: 8px !important;
+}
+
+.omega-choice-btn {
+  background: #09090b !important;
+  border: 1px solid #27272a !important;
+  border-radius: 8px !important;
+  padding: 8px 10px !important;
+  font-size: 12px !important;
+  font-weight: 600 !important;
+  color: #a1a1aa !important;
+  cursor: pointer !important;
+  transition: all 0.15s ease !important;
+  text-align: center !important;
+}
+
+.omega-choice-btn:hover {
+  background: #18181b !important;
+  color: #f4f4f5 !important;
+  border-color: #3f3f46 !important;
+}
+
+.omega-choice-btn.active-easy {
+  background: rgba(16, 185, 129, 0.15) !important;
+  border-color: #10b981 !important;
+  color: #34d399 !important;
+}
+
+.omega-choice-btn.active-medium {
+  background: rgba(245, 158, 11, 0.15) !important;
+  border-color: #f59e0b !important;
+  color: #fbbf24 !important;
+}
+
+.omega-choice-btn.active-hard {
+  background: rgba(239, 68, 68, 0.15) !important;
+  border-color: #ef4444 !important;
+  color: #f87171 !important;
+}
+
+.omega-choice-btn.active-yes {
+  background: rgba(244, 244, 245, 0.15) !important;
+  border-color: #f4f4f5 !important;
+  color: #ffffff !important;
+}
+
+.omega-choice-btn.active-no {
+  background: rgba(239, 68, 68, 0.15) !important;
+  border-color: #ef4444 !important;
+  color: #f87171 !important;
+}
+
+.omega-choice-btn.active-amber {
+  background: rgba(245, 158, 11, 0.15) !important;
+  border-color: #f59e0b !important;
+  color: #fbbf24 !important;
+}
+
+/* Textarea */
+.omega-textarea {
+  background: #09090b !important;
+  border: 1px solid #27272a !important;
+  border-radius: 8px !important;
+  padding: 10px 12px !important;
+  font-size: 12px !important;
+  color: #f4f4f5 !important;
+  font-family: inherit !important;
+  resize: none !important;
+  height: 64px !important;
+  box-sizing: border-box !important;
+  width: 100% !important;
+  outline: none !important;
+  transition: border-color 0.15s ease !important;
+}
+
+.omega-textarea:focus {
+  border-color: #dae2fd !important;
+  box-shadow: 0 0 0 1px #dae2fd !important;
+}
+
+.omega-textarea::placeholder {
+  color: #52525b !important;
+}
+
+/* Footer / Action */
+.omega-modal-footer {
+  padding: 14px 22px 18px 22px !important;
+  border-top: 1px solid #27272a !important;
+  background-color: #121215 !important;
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 8px !important;
+  flex-shrink: 0 !important;
+}
+
+.omega-submit-btn {
+  background: #f4f4f5 !important;
+  color: #09090b !important;
+  border: none !important;
+  border-radius: 9px !important;
+  padding: 11px 16px !important;
+  font-size: 13px !important;
+  font-weight: 700 !important;
+  cursor: pointer !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 8px !important;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4) !important;
+  transition: all 0.15s ease !important;
+}
+
+.omega-submit-btn:hover {
+  background: #ffffff !important;
+  transform: translateY(-1px) !important;
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.5) !important;
+}
+
+.omega-submit-btn:active {
+  transform: translateY(0) !important;
+}
+
+.omega-notice-text {
+  font-size: 10.5px !important;
+  color: #71717a !important;
+  text-align: center !important;
+  margin: 0 !important;
+  font-family: ui-monospace, SFMono-Regular, monospace !important;
+}
+
+/* Celebration State */
+.omega-success-view {
+  padding: 36px 20px !important;
+  display: flex !important;
+  flex-direction: column !important;
+  align-items: center !important;
+  justify-content: center !important;
+  text-align: center !important;
+  gap: 12px !important;
+}
+
+.omega-success-icon {
+  width: 52px !important;
+  height: 52px !important;
+  border-radius: 50% !important;
+  background: rgba(16, 185, 129, 0.15) !important;
+  border: 1px solid rgba(16, 185, 129, 0.4) !important;
+  color: #10b981 !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  font-size: 24px !important;
+  box-shadow: 0 0 20px rgba(16, 185, 129, 0.3) !important;
+}
+
+.omega-success-title {
+  font-size: 16px !important;
+  font-weight: 700 !important;
+  color: #ffffff !important;
+  margin: 0 !important;
+}
+
+.omega-success-sub {
+  font-size: 12px !important;
+  color: #a1a1aa !important;
+  margin: 0 !important;
+}

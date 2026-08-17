@@ -57,7 +57,7 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({
             Personalize Your Adaptive DSA Path
           </h2>
           <p className="text-xs text-zinc-400 mt-1">
-            AlgoOS generates a tailored daily practice queue based on your goals.
+            Omega generates a tailored daily practice queue based on your goals.
           </p>
         </div>
 

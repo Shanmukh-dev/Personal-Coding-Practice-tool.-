@@ -84,14 +84,14 @@ export const Dashboard: React.FC<DashboardProps> = ({
   if (isNewUser) {
     return (
       <div className="max-w-4xl mx-auto py-12 px-4 text-center">
-        <div className="w-16 h-16 rounded-2xl bg-slate-100/10 border border-slate-300/30 flex items-center justify-center text-slate-200 font-mono font-bold text-3xl mx-auto mb-6 shadow-xl">
-          A
+        <div className="w-16 h-16 rounded-2xl bg-[#0b1326] border border-[#334155] flex items-center justify-center text-[#dae2fd] font-serif font-bold text-3xl mx-auto mb-6 shadow-xl">
+          Ω
         </div>
         <h1 className="text-2xl sm:text-3xl font-bold text-zinc-100 tracking-tight">
-          Welcome to AlgoOS
+          Welcome to Omega
         </h1>
         <p className="text-zinc-400 max-w-lg mx-auto text-sm mt-3 leading-relaxed">
-          Welcome to AlgoOS. Choose your learning topics and connect a coding platform to begin.
+          Welcome to Omega. Choose your learning topics and connect a coding platform to begin.
         </p>
 
         <div className="mt-8 flex flex-wrap items-center justify-center gap-3">

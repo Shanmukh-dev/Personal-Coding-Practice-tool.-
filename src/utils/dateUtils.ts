@@ -1,5 +1,5 @@
 /**
- * Utility functions for local date management and formatting across AlgoOS
+ * Utility functions for local date management and formatting across Omega
  */
 
 /**

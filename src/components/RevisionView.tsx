@@ -232,7 +232,7 @@ export const RevisionView: React.FC<RevisionViewProps> = ({
         </div>
         <h2 className="text-xl font-bold text-zinc-200">No revisions scheduled yet.</h2>
         <p className="text-xs text-zinc-400 max-w-sm mx-auto mt-1">
-          When you solve problems and complete reflections, AlgoOS automatically schedules spaced-repetition revisions here and on your calendar.
+          When you solve problems and complete reflections, Omega automatically schedules spaced-repetition revisions here and on your calendar.
         </p>
       </div>
     );

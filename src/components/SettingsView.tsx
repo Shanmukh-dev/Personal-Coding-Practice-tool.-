@@ -293,7 +293,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
           ) : (
             <div className="p-4 rounded-xl bg-zinc-950 border border-zinc-800 space-y-3">
               <p className="text-xs text-zinc-400 leading-relaxed">
-                You are currently exploring AlgoOS as a <strong>Guest Engineer</strong>. Sign in or create an account to sync your practice history and custom reflections across devices.
+                You are currently exploring Omega as a <strong>Guest Engineer</strong>. Sign in or create an account to sync your practice history and custom reflections across devices.
               </p>
               <button
                 onClick={onOpenAuth}

@@ -52,7 +52,7 @@ export const MistakeJournalView: React.FC<MistakeJournalViewProps> = ({
         </div>
         <h2 className="text-xl font-bold text-zinc-200">No recurring mistakes detected.</h2>
         <p className="text-xs text-zinc-400 max-w-sm mx-auto mt-1">
-          AlgoOS categorizes your execution flaws, edge-case oversights, and implementation bugs to eliminate repeat errors.
+          Omega categorizes your execution flaws, edge-case oversights, and implementation bugs to eliminate repeat errors.
         </p>
         <button
           onClick={() => setIsAdding(true)}

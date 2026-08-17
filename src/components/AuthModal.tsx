@@ -74,11 +74,11 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onAuthSuc
         </button>
 
         <div className="mb-6 text-center">
-          <div className="w-10 h-10 rounded-xl bg-slate-100/10 border border-slate-300/30 flex items-center justify-center text-slate-200 font-mono font-bold text-xl mx-auto mb-3">
-            A
+          <div className="w-10 h-10 rounded-xl bg-[#0b1326] border border-[#334155] flex items-center justify-center text-[#dae2fd] font-serif font-bold text-xl mx-auto mb-3">
+            Ω
           </div>
           <h2 className="text-xl font-bold text-zinc-100">
-            {isSignUp ? 'Create your AlgoOS Account' : 'Welcome back to AlgoOS'}
+            {isSignUp ? 'Create your Omega Account' : 'Welcome back to Omega'}
           </h2>
           <p className="text-xs text-zinc-400 mt-1">
             Adaptive DSA Learning & Revision System

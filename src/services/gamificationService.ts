@@ -5,7 +5,7 @@ export const ACHIEVEMENTS: Achievement[] = [
   {
     id: 'first_problem',
     title: 'First Step',
-    description: 'Completed your first problem reflection on AlgoOS',
+    description: 'Completed your first problem reflection on Omega',
     iconName: 'Sparkles',
     xpReward: 100,
   },

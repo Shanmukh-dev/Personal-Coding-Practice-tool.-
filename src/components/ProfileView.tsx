@@ -443,17 +443,17 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
             )}
           </div>
 
-          {/* AlgoOS System Info Card */}
+          {/* Omega System Info Card */}
           <div className="p-6 rounded-2xl bg-zinc-900/60 border border-zinc-800/80 space-y-3">
             <h4 className="text-xs font-mono uppercase text-zinc-400 font-semibold tracking-wider">
               System Architecture
             </h4>
             <p className="text-xs text-zinc-400 leading-relaxed">
-              AlgoOS uses an event-driven learning engine grounded in cognitive science: SuperMemo SM-2 spaced repetition, pattern mastery matrixes, and AI grounded feedback.
+              Omega uses an event-driven learning engine grounded in cognitive science: SuperMemo SM-2 spaced repetition, pattern mastery matrixes, and AI grounded feedback.
             </p>
             <div className="pt-1 text-[11px] font-mono text-zinc-500 flex items-center gap-2">
               <span className="w-2 h-2 rounded-full bg-slate-300 animate-pulse" />
-              <span>AlgoOS Engine v2.0 Active</span>
+              <span>Omega Engine v2.0 Active</span>
             </div>
           </div>
         </div>

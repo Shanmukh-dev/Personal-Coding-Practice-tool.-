@@ -5,6 +5,8 @@ import { ALL_PLATFORMS, generateUserscriptSnippet } from '../services/platformCo
 
 interface PlatformConnectorsViewProps {
   userId: string;
+  userEmail?: string | null;
+  userDisplayName?: string | null;
   isAuthenticated: boolean;
   connections: PlatformConnection[];
   onConnectPlatform: (platform: Platform, username: string) => Promise<void>;
@@ -15,6 +17,8 @@ interface PlatformConnectorsViewProps {
 
 export const PlatformConnectorsView: React.FC<PlatformConnectorsViewProps> = ({
   userId,
+  userEmail,
+  userDisplayName,
   isAuthenticated,
   connections,
   onConnectPlatform,
@@ -26,6 +30,43 @@ export const PlatformConnectorsView: React.FC<PlatformConnectorsViewProps> = ({
   const [handleInput, setHandleInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [copiedCode, setCopiedCode] = useState(false);
+
+  // Extension Pair Code State
+  const [pairCode, setPairCode] = useState<string | null>(null);
+  const [pairLoading, setPairLoading] = useState(false);
+  const [copiedPairCode, setCopiedPairCode] = useState(false);
+  const [isPairModalOpen, setIsPairModalOpen] = useState(false);
+
+  const handleGeneratePairCode = async () => {
+    try {
+      setPairLoading(true);
+      const res = await fetch('/api/extension/auth/create-pair-code', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          uid: userId || 'guest',
+          email: userEmail || null,
+          displayName: userDisplayName || 'Engineer',
+        }),
+      });
+      const data = await res.json();
+      if (data.success && data.pairCode) {
+        setPairCode(data.pairCode);
+        setIsPairModalOpen(true);
+      }
+    } catch (err) {
+      console.error('Failed to create pair code:', err);
+    } finally {
+      setPairLoading(false);
+    }
+  };
+
+  const copyPairCodeToClipboard = () => {
+    if (!pairCode) return;
+    navigator.clipboard.writeText(pairCode);
+    setCopiedPairCode(true);
+    setTimeout(() => setCopiedPairCode(false), 2000);
+  };
 
   // Event simulator inputs
   const [simPlatform, setSimPlatform] = useState<Platform>('LeetCode');
@@ -73,7 +114,7 @@ export const PlatformConnectorsView: React.FC<PlatformConnectorsViewProps> = ({
           Connect Your Competitive Programming Platforms
         </h1>
         <p className="text-xs text-zinc-400 max-w-2xl leading-relaxed">
-          AlgoOS connects with coding platforms to synchronize solved problems. The learning engine operates independently and consumes normalized completion events: <code className="text-slate-200 font-mono">ProblemCompleted(problemId, timestamp)</code>.
+          Omega connects with coding platforms to synchronize solved problems. The learning engine operates independently and consumes normalized completion events: <code className="text-slate-200 font-mono">ProblemCompleted(problemId, timestamp)</code>.
         </p>
       </div>
 
@@ -216,6 +257,94 @@ export const PlatformConnectorsView: React.FC<PlatformConnectorsViewProps> = ({
         </div>
       )}
 
+      {/* Omega Chrome Extension Showcase & Setup Card */}
+      <div className="p-6 rounded-2xl bg-zinc-900 border border-slate-300/30 shadow-xl space-y-6">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-zinc-800 pb-5">
+          <div className="flex items-center space-x-3.5">
+            {/* Omega Badge matching Sidebar */}
+            <div className="w-11 h-11 rounded-lg bg-[#0b1326] border border-[#334155] flex items-center justify-center shrink-0 shadow-md">
+              <span className="font-serif font-bold text-2xl text-[#dae2fd]">Ω</span>
+            </div>
+            <div>
+              <div className="flex items-center space-x-2">
+                <h2 className="text-lg font-bold text-zinc-100">Omega Chrome Extension (Manifest V3)</h2>
+                <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                  Ready to Load
+                </span>
+              </div>
+              <p className="text-xs text-zinc-400 mt-0.5">
+                Automatically detects submissions on LeetCode and displays the mandatory reflection dialogue.
+              </p>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2.5">
+            <button
+              onClick={handleGeneratePairCode}
+              disabled={pairLoading}
+              className="px-3.5 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-semibold text-xs transition-all flex items-center gap-1.5 shadow-sm"
+            >
+              <Link2 className="w-3.5 h-3.5" />
+              <span>{pairLoading ? 'Generating...' : 'Generate 6-Digit Pair Code'}</span>
+            </button>
+            <span className="text-[11px] font-mono px-2.5 py-1.5 rounded-lg bg-zinc-950 border border-zinc-800 text-zinc-300 flex items-center gap-1.5">
+              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+              <span>Icon Badge: <strong>ON / OFF</strong></span>
+            </span>
+          </div>
+        </div>
+
+        {/* Feature Highlights Grid */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="p-4 rounded-xl bg-zinc-950/70 border border-zinc-800 space-y-1.5">
+            <div className="text-xs font-mono font-semibold text-emerald-400 flex items-center gap-1.5">
+              <CheckCircle2 className="w-3.5 h-3.5" />
+              <span>Submission Interceptor</span>
+            </div>
+            <p className="text-xs text-zinc-400 leading-relaxed">
+              Monitors LeetCode in real-time. The moment an "Accepted" verdict is detected, the reflection modal opens on the problem page.
+            </p>
+          </div>
+
+          <div className="p-4 rounded-xl bg-zinc-950/70 border border-zinc-800 space-y-1.5">
+            <div className="text-xs font-mono font-semibold text-amber-400 flex items-center gap-1.5">
+              <AlertCircle className="w-3.5 h-3.5" />
+              <span>Unavoidable Practice Log</span>
+            </div>
+            <p className="text-xs text-zinc-400 leading-relaxed">
+              Focus is locked to the reflection modal. Captures confidence (1-5 stars), felt difficulty, and key notes before continuing.
+            </p>
+          </div>
+
+          <div className="p-4 rounded-xl bg-zinc-950/70 border border-zinc-800 space-y-1.5">
+            <div className="text-xs font-mono font-semibold text-blue-400 flex items-center gap-1.5">
+              <RefreshCw className="w-3.5 h-3.5" />
+              <span>Month Heatmap & Today Count</span>
+            </div>
+            <p className="text-xs text-zinc-400 leading-relaxed">
+              Toolbar popup shows your current month activity heatmap, total problems solved today, and an on/off badge indicator.
+            </p>
+          </div>
+        </div>
+
+        {/* How to load the extension */}
+        <div className="p-4 rounded-xl bg-zinc-950 border border-zinc-800 space-y-3">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-mono font-bold text-slate-300 uppercase">
+              How to Load Extension in Chrome / Brave / Edge
+            </span>
+            <span className="text-[11px] font-mono text-zinc-500">Folder: <code className="text-zinc-300">/extension</code></span>
+          </div>
+
+          <ol className="list-decimal list-inside text-xs text-zinc-300 space-y-1.5 leading-relaxed font-sans">
+            <li>Open your browser and navigate to <code className="text-amber-300 font-mono bg-zinc-900 px-1.5 py-0.5 rounded border border-zinc-800">chrome://extensions</code></li>
+            <li>Enable <strong>"Developer mode"</strong> in the top right corner.</li>
+            <li>Click <strong>"Load unpacked"</strong> and select the <code className="text-amber-300 font-mono bg-zinc-900 px-1.5 py-0.5 rounded border border-zinc-800">extension</code> folder from this project directory.</li>
+            <li>Pin the <strong>Ω Omega</strong> icon to your toolbar to view the month heatmap, today's solved count, and on/off badge status!</li>
+          </ol>
+        </div>
+      </div>
+
       {/* Real-time Completion Listener & Userscript Tool */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Userscript snippet */}
@@ -309,6 +438,65 @@ export const PlatformConnectorsView: React.FC<PlatformConnectorsViewProps> = ({
           </div>
         </div>
       </div>
+      {/* Extension Pair Code Modal */}
+      {isPairModalOpen && pairCode && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4">
+          <div className="bg-zinc-900 border border-zinc-700 rounded-2xl max-w-md w-full p-6 relative shadow-2xl space-y-5">
+            <div className="flex items-center justify-between border-b border-zinc-800 pb-3">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-lg bg-[#0b1326] border border-[#334155] flex items-center justify-center text-sm font-serif font-bold text-[#dae2fd]">
+                  Ω
+                </div>
+                <h3 className="text-base font-bold text-zinc-100">
+                  Chrome Extension Pair Code
+                </h3>
+              </div>
+              <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-semibold">
+                Valid for 15 min
+              </span>
+            </div>
+
+            <p className="text-xs text-zinc-400 leading-relaxed">
+              Enter this 6-digit code into your <strong>Omega Chrome Extension</strong> popup under the <strong>Pair Code</strong> tab to link your practice submissions directly to this dashboard.
+            </p>
+
+            {/* Huge 6-Digit Code Display */}
+            <div className="p-4 rounded-xl bg-zinc-950 border border-zinc-800 flex items-center justify-center">
+              <span className="text-3xl font-mono font-black tracking-[0.25em] text-white select-all">
+                {pairCode}
+              </span>
+            </div>
+
+            <div className="flex justify-between items-center pt-2">
+              <button
+                type="button"
+                onClick={() => setIsPairModalOpen(false)}
+                className="px-4 py-2 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-xs font-semibold"
+              >
+                Close
+              </button>
+
+              <button
+                type="button"
+                onClick={copyPairCodeToClipboard}
+                className="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold flex items-center gap-1.5 shadow-sm transition-all"
+              >
+                {copiedPairCode ? (
+                  <>
+                    <Check className="w-4 h-4" />
+                    <span>Copied!</span>
+                  </>
+                ) : (
+                  <>
+                    <Copy className="w-4 h-4" />
+                    <span>Copy 6-Digit Code</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

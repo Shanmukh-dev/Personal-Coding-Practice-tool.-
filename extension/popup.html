@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Omega - LeetCode Tracker</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="popup-container">
+    <!-- Top Header -->
+    <header class="header">
+      <div class="brand">
+        <div class="logo-badge">
+          <span class="logo-icon">Ω</span>
+        </div>
+        <div class="brand-text">
+          <div class="brand-title-row">
+            <span class="brand-name">Omega</span>
+            <span class="version-tag">v2.0</span>
+          </div>
+          <span class="brand-sub">Adaptive DSA OS</span>
+        </div>
+      </div>
+
+      <!-- Tracking Toggle Switch -->
+      <div class="toggle-container">
+        <span class="toggle-label" id="toggleStatusLabel">Active</span>
+        <label class="switch" title="Toggle submission detection on/off">
+          <input type="checkbox" id="trackingToggle" checked>
+          <span class="slider round"></span>
+        </label>
+      </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="content">
+      <!-- User Auth State Banner -->
+      <div class="card auth-card" id="authCard">
+        <!-- Logged In State View -->
+        <div id="authLoggedInView" style="display: none;">
+          <div class="user-profile-row">
+            <div class="user-avatar" id="userAvatar">Ω</div>
+            <div class="user-info">
+              <div class="user-name-row">
+                <span class="user-display-name" id="userDisplayName">Engineer</span>
+                <span class="cloud-pill" title="Synchronizing DSA reflections with Omega Cloud">
+                  <span class="cloud-dot"></span> Cloud Active
+                </span>
+              </div>
+              <span class="user-email" id="userEmail">user@example.com</span>
+            </div>
+            <button type="button" class="btn-icon" id="logoutBtn" title="Sign out of Omega">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line></svg>
+            </button>
+          </div>
+        </div>
+
+        <!-- Logged Out / Auth Form View -->
+        <div id="authLoggedOutView">
+          <div class="auth-header">
+            <div class="auth-title-group">
+              <span class="card-eyebrow">OMEGA CLOUD SYNC</span>
+              <span class="auth-heading">Connect your account</span>
+            </div>
+            <div class="auth-tabs">
+              <button type="button" class="auth-tab active" id="tabPairCode">Pair Code</button>
+              <button type="button" class="auth-tab" id="tabEmail">Email</button>
+            </div>
+          </div>
+
+          <!-- Tab 1: 6-Digit Pair Code -->
+          <div id="pairCodeTabContent" class="auth-tab-content">
+            <div class="pair-code-row">
+              <input type="text" id="pairCodeInput" class="auth-input code-input" placeholder="e.g. 842910" maxlength="6" autocomplete="off">
+              <button type="button" class="btn btn-connect" id="submitPairCodeBtn">Connect</button>
+            </div>
+            <div class="auth-hint">
+              <span>Open Omega dashboard &gt; Integrations to get your 6-digit code</span>
+            </div>
+          </div>
+
+          <!-- Tab 2: Email & Password -->
+          <div id="emailTabContent" class="auth-tab-content" style="display: none;">
+            <div class="auth-form-group">
+              <input type="email" id="emailInput" class="auth-input" placeholder="email@domain.com">
+              <input type="password" id="passwordInput" class="auth-input" placeholder="Password">
+              <button type="button" class="btn btn-connect w-full" id="submitEmailBtn">Sign In to Omega</button>
+            </div>
+          </div>
+
+          <!-- Auth Status Alert -->
+          <div id="authAlert" class="auth-alert" style="display: none;"></div>
+        </div>
+      </div>
+
+      <!-- Today's Problems Solved Hero Card -->
+      <div class="card today-card">
+        <div class="today-header">
+          <div class="today-title-group">
+            <span class="card-eyebrow">TODAY'S ACTIVITY</span>
+            <span class="today-date-str" id="todayDateStr">August 16, 2026</span>
+          </div>
+          <div class="streak-badge" id="streakBadge">
+            <span class="flame-icon">🔥</span>
+            <span id="streakCount">1d streak</span>
+          </div>
+        </div>
+
+        <div class="today-stat-row">
+          <div class="stat-number-wrapper">
+            <span class="stat-number" id="todayCountNum">0</span>
+            <span class="stat-unit">Problems Solved</span>
+          </div>
+          <div class="target-indicator" id="targetStatusText">
+            Goal: 3 / day
+          </div>
+        </div>
+
+        <!-- Progress bar -->
+        <div class="progress-bar-bg">
+          <div class="progress-bar-fill" id="todayProgressBar" style="width: 0%;"></div>
+        </div>
+      </div>
+
+      <!-- Current Month Heatmap Card -->
+      <div class="card heatmap-card">
+        <div class="heatmap-header">
+          <div>
+            <div class="card-eyebrow" id="monthNameLabel">AUGUST 2026</div>
+            <div class="heatmap-stats">
+              <span id="monthTotalCount">0</span> solved • <span id="monthActiveDays">0</span> active days
+            </div>
+          </div>
+          <span class="heatmap-chip">Monthly Consistency</span>
+        </div>
+
+        <!-- Heatmap Grid -->
+        <div class="heatmap-wrapper">
+          <div class="weekday-labels">
+            <span>S</span>
+            <span>M</span>
+            <span>T</span>
+            <span>W</span>
+            <span>T</span>
+            <span>F</span>
+            <span>S</span>
+          </div>
+          <div class="heatmap-grid" id="heatmapGrid">
+            <!-- Dynamically populated weeks -->
+          </div>
+        </div>
+
+        <!-- Legend -->
+        <div class="heatmap-footer">
+          <span class="legend-label">Less</span>
+          <div class="legend-squares">
+            <span class="legend-sq lv0" title="0 solved"></span>
+            <span class="legend-sq lv1" title="1 solved"></span>
+            <span class="legend-sq lv2" title="2 solved"></span>
+            <span class="legend-sq lv3" title="3-4 solved"></span>
+            <span class="legend-sq lv4" title="5+ solved"></span>
+          </div>
+          <span class="legend-label">More</span>
+        </div>
+      </div>
+
+      <!-- Recent Solved Logs -->
+      <div class="card logs-card">
+        <div class="logs-header">
+          <span class="card-eyebrow">RECENT LEETCODE LOGS</span>
+          <span class="logs-count-badge" id="recentLogsBadge">0 Logs</span>
+        </div>
+        <div class="logs-list" id="recentLogsList">
+          <div class="empty-logs">
+            No submissions recorded yet today. Solve a problem on LeetCode to auto-trigger reflection!
+          </div>
+        </div>
+      </div>
+    </main>
+
+    <!-- Bottom Actions -->
+    <footer class="footer">
+      <button type="button" class="btn btn-primary" id="openAppBtn">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg>
+        <span>Open Omega Dashboard</span>
+      </button>
+
+      <button type="button" class="btn btn-secondary" id="testModalBtn" title="Test triggering reflection dialogue on currently active LeetCode tab">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
+        <span>Test Log Dialogue</span>
+      </button>
+    </footer>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>
