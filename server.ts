@@ -1,5 +1,7 @@
 import express from 'express';
 import path from 'path';
+import fs from 'fs';
+import JSZip from 'jszip';
 import { createServer as createViteServer } from 'vite';
 import { GoogleGenAI, Type } from '@google/genai';
 import dotenv from 'dotenv';
@@ -267,10 +269,10 @@ ${
 // CHROME EXTENSION AUTHENTICATION & SYNC API
 // ==========================================
 
-// 1. Extension Auth: Email & Password Login
+// 1. Extension Auth: Email & Password Login / Sign Up
 app.post('/api/extension/auth/login', async (req, res) => {
   try {
-    const { email, password } = req.body;
+    const { email, password, isSignUp, displayName } = req.body;
     if (!email) {
       return res.status(400).json({ error: 'Email is required' });
     }
@@ -278,31 +280,35 @@ app.post('/api/extension/auth/login', async (req, res) => {
     const apiKey = firebaseConfigJson.apiKey;
     if (password && apiKey) {
       try {
-        const fbRes = await fetch(
-          `https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=${apiKey}`,
-          {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              email,
-              password,
-              returnSecureToken: true,
-            }),
-          }
-        );
+        const endpoint = isSignUp
+          ? `https://identitytoolkit.googleapis.com/v1/accounts:signUp?key=${apiKey}`
+          : `https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=${apiKey}`;
+
+        const fbRes = await fetch(endpoint, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            email,
+            password,
+            returnSecureToken: true,
+          }),
+        });
 
         const fbData: any = await fbRes.json();
         if (fbRes.ok && fbData.localId) {
+          const userDisplayName = displayName || fbData.displayName || email.split('@')[0];
           return res.json({
             success: true,
             user: {
               uid: fbData.localId,
-              email: fbData.email,
-              displayName: fbData.displayName || fbData.email.split('@')[0],
+              email: fbData.email || email,
+              displayName: userDisplayName,
               photoURL: fbData.profilePicture || null,
             },
             token: fbData.idToken,
-            message: 'Authenticated successfully with Omega Cloud',
+            message: isSignUp
+              ? 'Account created and connected to Omega Cloud'
+              : 'Authenticated successfully with Omega Cloud',
           });
         } else if (fbData.error?.message) {
           const errMsg = fbData.error.message.replace(/_/g, ' ').toLowerCase();
@@ -320,7 +326,7 @@ app.post('/api/extension/auth/login', async (req, res) => {
       user: {
         uid: syntheticUid,
         email: email,
-        displayName: email.split('@')[0],
+        displayName: displayName || email.split('@')[0],
         photoURL: null,
       },
       token: `token-${Date.now()}`,
@@ -445,7 +451,50 @@ app.post('/api/extension/log', async (req, res) => {
   }
 });
 
-// 5. Pending Logs Polling Endpoint for Web Dashboard
+// 5. Download Extension as ZIP package
+app.get('/api/extension/download-zip', async (req, res) => {
+  try {
+    const extensionDir = path.join(process.cwd(), 'extension');
+    if (!fs.existsSync(extensionDir)) {
+      return res.status(404).json({ error: 'Extension directory not found' });
+    }
+
+    const zip = new JSZip();
+
+    function addDirToZip(dirPath: string, zipFolder: JSZip) {
+      const entries = fs.readdirSync(dirPath, { withFileTypes: true });
+      for (const entry of entries) {
+        const fullPath = path.join(dirPath, entry.name);
+        if (entry.isDirectory()) {
+          const subFolder = zipFolder.folder(entry.name);
+          if (subFolder) {
+            addDirToZip(fullPath, subFolder);
+          }
+        } else if (entry.isFile()) {
+          const fileContent = fs.readFileSync(fullPath);
+          zipFolder.file(entry.name, fileContent);
+        }
+      }
+    }
+
+    addDirToZip(extensionDir, zip);
+
+    const zipBuffer = await zip.generateAsync({
+      type: 'nodebuffer',
+      compression: 'DEFLATE',
+      compressionOptions: { level: 9 },
+    });
+
+    res.setHeader('Content-Type', 'application/zip');
+    res.setHeader('Content-Disposition', 'attachment; filename="omega-chrome-extension.zip"');
+    return res.send(zipBuffer);
+  } catch (err: any) {
+    console.error('Error generating extension zip:', err);
+    return res.status(500).json({ error: 'Failed to generate extension zip' });
+  }
+});
+
+// 6. Pending Logs Polling Endpoint for Web Dashboard
 app.get('/api/extension/pending-logs', (req, res) => {
   try {
     const { userId, since } = req.query;

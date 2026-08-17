@@ -25,14 +25,11 @@
   "permissions": [
     "storage",
     "activeTab",
-    "scripting"
+    "scripting",
+    "tabs"
   ],
   "host_permissions": [
-    "https://leetcode.com/*",
-    "https://leetcode.cn/*",
-    "http://localhost:3000/*",
-    "http://127.0.0.1:3000/*",
-    "https://*.run.app/*"
+    "<all_urls>"
   ],
   "content_scripts": [
     {
@@ -43,6 +40,15 @@
       "js": ["content.js"],
       "css": ["content.css"],
       "run_at": "document_end"
+    },
+    {
+      "matches": [
+        "http://localhost/*",
+        "http://127.0.0.1/*",
+        "https://*.run.app/*"
+      ],
+      "js": ["bridge.js"],
+      "run_at": "document_start"
     }
   ],
   "web_accessible_resources": [

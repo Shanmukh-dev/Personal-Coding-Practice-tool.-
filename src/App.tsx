@@ -79,6 +79,7 @@ import { GamificationView } from './components/GamificationView';
 import { ProfileView } from './components/ProfileView';
 import { SettingsView } from './components/SettingsView';
 import { OnboardingAuthScreen } from './components/OnboardingAuthScreen';
+import { ExtensionPairModal } from './components/ExtensionPairModal';
 import { ThemeProvider, ThemeMode } from './context/ThemeContext';
 
 export default function App() {
@@ -103,8 +104,17 @@ export default function App() {
   // Modals & UI Layout
   const [isAuthOpen, setIsAuthOpen] = useState<boolean>(false);
   const [isOnboardingOpen, setIsOnboardingOpen] = useState<boolean>(false);
+  const [isExtensionPairModalOpen, setIsExtensionPairModalOpen] = useState<boolean>(false);
   const [reflectionProblem, setReflectionProblem] = useState<Problem | null>(null);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState<boolean>(false);
+
+  // Auto-open extension pair modal if query parameter ?ext_pair=1 or ?pair=1 exists
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('ext_pair') === '1' || params.get('pair') === '1' || window.location.hash === '#pair') {
+      setIsExtensionPairModalOpen(true);
+    }
+  }, []);
 
   // Sync catalog globally on mount
   useEffect(() => {
@@ -147,6 +157,43 @@ export default function App() {
     });
     return () => unsubscribe();
   }, []);
+
+  // Broadcast auth state to Chrome Extension whenever auth changes or extension requests it
+  useEffect(() => {
+    const broadcastToExtension = () => {
+      try {
+        if (currentUser && currentUser.uid) {
+          window.postMessage(
+            {
+              type: 'OMEGA_SET_AUTH',
+              user: {
+                uid: currentUser.uid,
+                email: currentUser.email,
+                displayName: currentUser.displayName,
+                photoURL: currentUser.photoURL,
+              },
+              appUrl: window.location.origin,
+            },
+            '*'
+          );
+        }
+      } catch (err) {
+        console.warn('Extension bridge broadcast error:', err);
+      }
+    };
+
+    broadcastToExtension();
+
+    const handleExtensionMessages = (event: MessageEvent) => {
+      if (!event.data || typeof event.data !== 'object') return;
+      if (event.data.type === 'OMEGA_PING_EXTENSION' || event.data.type === 'OMEGA_EXTENSION_INSTALLED') {
+        broadcastToExtension();
+      }
+    };
+
+    window.addEventListener('message', handleExtensionMessages);
+    return () => window.removeEventListener('message', handleExtensionMessages);
+  }, [currentUser]);
 
   const initGuestProfile = () => {
     const newGuest: UserProfile = {
@@ -1136,6 +1183,7 @@ export default function App() {
         onOpenAuth={() => setIsAuthOpen(true)}
         onSignOut={handleSignOut}
         onOpenOnboarding={() => setIsOnboardingOpen(true)}
+        onOpenExtensionPair={() => setIsExtensionPairModalOpen(true)}
         dueRevisionsCount={dueRevisions}
         queueProgressText={queueProgressText}
         isCollapsed={isSidebarCollapsed}
@@ -1223,6 +1271,7 @@ export default function App() {
               onSyncPlatform={handleSyncPlatform}
               onSimulateCompletionEvent={handleSimulateCompletionEvent}
               onOpenAuth={() => setIsAuthOpen(true)}
+              onOpenExtensionPair={() => setIsExtensionPairModalOpen(true)}
             />
           )}
 
@@ -1312,6 +1361,15 @@ export default function App() {
         }
         onClose={() => setReflectionProblem(null)}
         onSubmitReflection={handleSubmitReflection}
+      />
+
+      <ExtensionPairModal
+        isOpen={isExtensionPairModalOpen}
+        onClose={() => setIsExtensionPairModalOpen(false)}
+        currentUser={currentUser}
+        userEmail={userProfile?.email || undefined}
+        userDisplayName={userProfile?.displayName || undefined}
+        onOpenAuth={() => setIsAuthOpen(true)}
       />
     </div>
   </ThemeProvider>

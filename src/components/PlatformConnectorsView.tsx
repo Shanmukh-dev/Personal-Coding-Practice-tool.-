@@ -13,6 +13,7 @@ interface PlatformConnectorsViewProps {
   onSyncPlatform: (platform: Platform) => Promise<void>;
   onSimulateCompletionEvent: (platform: Platform, problemTitle: string, problemUrl: string) => Promise<void>;
   onOpenAuth: () => void;
+  onOpenExtensionPair?: () => void;
 }
 
 export const PlatformConnectorsView: React.FC<PlatformConnectorsViewProps> = ({
@@ -25,6 +26,7 @@ export const PlatformConnectorsView: React.FC<PlatformConnectorsViewProps> = ({
   onSyncPlatform,
   onSimulateCompletionEvent,
   onOpenAuth,
+  onOpenExtensionPair,
 }) => {
   const [connectingPlatform, setConnectingPlatform] = useState<Platform | null>(null);
   const [handleInput, setHandleInput] = useState('');
@@ -279,10 +281,25 @@ export const PlatformConnectorsView: React.FC<PlatformConnectorsViewProps> = ({
           </div>
 
           <div className="flex flex-wrap items-center gap-2.5">
+            <a
+              href="/api/extension/download-zip"
+              download="omega-chrome-extension.zip"
+              className="px-3.5 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-200 font-semibold text-xs transition-all flex items-center gap-1.5 border border-zinc-700 cursor-pointer"
+            >
+              <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+              <span>Download Extension (.zip)</span>
+            </a>
+
             <button
-              onClick={handleGeneratePairCode}
+              onClick={() => {
+                if (onOpenExtensionPair) {
+                  onOpenExtensionPair();
+                } else {
+                  handleGeneratePairCode();
+                }
+              }}
               disabled={pairLoading}
-              className="px-3.5 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-semibold text-xs transition-all flex items-center gap-1.5 shadow-sm"
+              className="px-3.5 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-semibold text-xs transition-all flex items-center gap-1.5 shadow-sm cursor-pointer"
             >
               <Link2 className="w-3.5 h-3.5" />
               <span>{pairLoading ? 'Generating...' : 'Generate 6-Digit Pair Code'}</span>

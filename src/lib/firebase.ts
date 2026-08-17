@@ -26,6 +26,10 @@ const app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
 export const auth = getAuth(app);
 export const googleProvider = new GoogleAuthProvider();
 
+export const signInWithGoogle = async () => {
+  return signInWithPopup(auth, googleProvider);
+};
+
 const dbId = firebaseConfigJson.firestoreDatabaseId;
 export const db = dbId && dbId !== '(default)' ? getFirestore(app, dbId) : getFirestore(app);
 
