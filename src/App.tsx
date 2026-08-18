@@ -80,6 +80,7 @@ import { ProfileView } from './components/ProfileView';
 import { SettingsView } from './components/SettingsView';
 import { OnboardingAuthScreen } from './components/OnboardingAuthScreen';
 import { ExtensionPairModal } from './components/ExtensionPairModal';
+import { DownloadExtensionModal } from './components/DownloadExtensionModal';
 import { ThemeProvider, ThemeMode } from './context/ThemeContext';
 
 export default function App() {
@@ -105,6 +106,7 @@ export default function App() {
   const [isAuthOpen, setIsAuthOpen] = useState<boolean>(false);
   const [isOnboardingOpen, setIsOnboardingOpen] = useState<boolean>(false);
   const [isExtensionPairModalOpen, setIsExtensionPairModalOpen] = useState<boolean>(false);
+  const [isDownloadExtensionModalOpen, setIsDownloadExtensionModalOpen] = useState<boolean>(false);
   const [reflectionProblem, setReflectionProblem] = useState<Problem | null>(null);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState<boolean>(false);
 
@@ -286,17 +288,177 @@ export default function App() {
     };
 
     broadcastToExtension();
+    const syncInterval = setInterval(broadcastToExtension, 10000);
 
     const handleExtensionMessages = (event: MessageEvent) => {
       if (!event.data || typeof event.data !== 'object') return;
       if (event.data.type === 'OMEGA_PING_EXTENSION' || event.data.type === 'OMEGA_EXTENSION_INSTALLED') {
         broadcastToExtension();
+      } else if (event.data.type === 'OMEGA_EXTENSION_LOG_RECEIVED' && event.data.log) {
+        ingestExtensionLog(event.data.log);
       }
     };
 
     window.addEventListener('message', handleExtensionMessages);
-    return () => window.removeEventListener('message', handleExtensionMessages);
+    return () => {
+      clearInterval(syncInterval);
+      window.removeEventListener('message', handleExtensionMessages);
+    };
   }, [currentUser, solvingRecords, reflections, dailyQueue, gamification, userProfile]);
+
+  // Track processed extension log IDs to prevent duplicate additions
+  const processedLogIdsRef = React.useRef<Set<string>>(new Set());
+
+  // Ingest logs automatically captured from the Chrome Extension
+  const ingestExtensionLog = async (rawLog: any) => {
+    if (!rawLog) return;
+    const logId = rawLog.id || `ext-${rawLog.timestamp || Date.now()}`;
+    if (processedLogIdsRef.current.has(logId)) return;
+    processedLogIdsRef.current.add(logId);
+
+    const uid = currentUser?.uid || 'guest';
+    const timestamp = rawLog.timestamp || Date.now();
+    const title = rawLog.problemTitle || rawLog.problemSlug || 'Practice Problem';
+    const slug = rawLog.problemSlug || title.toLowerCase().replace(/[^a-z0-9]+/g, '-');
+    const platform = (rawLog.platform || 'LeetCode') as Platform;
+    const url = rawLog.problemUrl || `https://leetcode.com/problems/${slug}`;
+    const difficulty = rawLog.feltDifficulty || 'Medium';
+
+    // 1. Match or register problem in catalog
+    let matchedProblem = catalog.find(
+      (p) =>
+        p.platformProblemId?.toLowerCase() === slug.toLowerCase() ||
+        p.title?.toLowerCase() === title.toLowerCase() ||
+        p.url?.toLowerCase() === url.toLowerCase()
+    );
+
+    if (!matchedProblem) {
+      matchedProblem = {
+        id: `prob-ext-${slug}-${Date.now()}`,
+        title: title,
+        platform: platform,
+        platformProblemId: slug,
+        difficulty: difficulty,
+        dsaPatterns: ['General'],
+        url: url,
+        estimatedTimeMinutes: 20,
+      };
+      await saveGlobalProblem(matchedProblem);
+      setCatalog((prev) => [...prev, matchedProblem!]);
+    }
+
+    // 2. Build Reflection Record
+    const refId = `ref-${logId}`;
+    const newReflection: Reflection = {
+      id: refId,
+      userId: uid,
+      problemId: matchedProblem.id,
+      timestamp: timestamp,
+      confidence: typeof rawLog.confidence === 'number' ? rawLog.confidence : 4,
+      feltDifficulty: (difficulty as any) || 'Medium',
+      recognizedPatternImmediately: rawLog.recognizedPatternImmediately ?? true,
+      requiredHintsOrEditorial: rawLog.requiredHintsOrEditorial ?? false,
+      notes:
+        rawLog.notes ||
+        (rawLog.improvementAnswers
+          ? `[Revision] Speed: ${rawLog.improvementAnswers.speedImprovement}, Avoided: ${rawLog.improvementAnswers.avoidedPreviousMistakes}`
+          : ''),
+    };
+
+    if (currentUser) {
+      await saveReflection(uid, newReflection);
+    }
+    setReflections((prev) => [newReflection, ...prev.filter((r) => r.id !== refId)]);
+
+    // 3. Build Solving Record
+    const solvId = `solv-${logId}`;
+    const newSolving: SolvingRecord = {
+      id: solvId,
+      userId: uid,
+      problemId: matchedProblem.id,
+      completedAt: timestamp,
+      source: 'extension',
+      reflectionId: refId,
+      isRevision: Boolean(rawLog.isRevision),
+    };
+
+    if (currentUser) {
+      await saveSolvingRecord(uid, newSolving);
+    }
+    setSolvingRecords((prev) => [newSolving, ...prev.filter((s) => s.id !== solvId)]);
+
+    // 4. Update Spaced Revision Card
+    const existingRev = revisionCards.find((c) => c.problemId === matchedProblem!.id) || null;
+    let outcome: ReviewOutcome = 'Good';
+    const conf = newReflection.confidence;
+    if (conf >= 4 && !newReflection.requiredHintsOrEditorial) outcome = 'Easy';
+    else if (conf === 3) outcome = 'Good';
+    else if (conf === 2) outcome = 'Hard';
+    else outcome = 'Forgot';
+
+    const nextCard = calculateNextRevision(existingRev, matchedProblem.id, uid, outcome);
+    if (currentUser) {
+      await saveRevisionCard(uid, nextCard);
+    }
+    setRevisionCards((prev) => [...prev.filter((c) => c.id !== nextCard.id), nextCard]);
+
+    // 5. Update Daily Queue if item exists
+    const queueItems = dailyQueue.filter((i) => i.problemId === matchedProblem!.id);
+    if (queueItems.length > 0) {
+      if (currentUser) {
+        for (const qItem of queueItems) {
+          await updateDailyQueueItemStatus(uid, qItem.id, 'completed');
+        }
+      }
+      setDailyQueue((prev) =>
+        prev.map((i) => (i.problemId === matchedProblem!.id ? { ...i, status: 'completed' as const } : i))
+      );
+    }
+
+    // 6. Update Gamification Progress
+    const { nextState: updatedGamification } = updateGamificationProgress(
+      gamification,
+      uid,
+      {
+        action: rawLog.isRevision ? 'revision_completed' : 'problem_completed',
+        difficulty: matchedProblem.difficulty as any,
+        confidence: newReflection.confidence,
+        recognizedPatternImmediately: newReflection.recognizedPatternImmediately,
+        requiredHintsOrEditorial: newReflection.requiredHintsOrEditorial,
+        hasNotes: Boolean(newReflection.notes),
+      }
+    );
+    setGamification(updatedGamification);
+    if (currentUser) {
+      await setUserGamification(uid, updatedGamification);
+    }
+  };
+
+  // Poll server periodically for pending extension logs submitted from other tabs
+  useEffect(() => {
+    let lastPollTime = Date.now() - 60000;
+    const pollInterval = setInterval(async () => {
+      try {
+        const uidParam = currentUser?.uid ? `?userId=${encodeURIComponent(currentUser.uid)}&since=${lastPollTime}` : `?since=${lastPollTime}`;
+        const res = await fetch(`/api/extension/pending-logs${uidParam}`);
+        if (res.ok) {
+          const data = await res.json();
+          if (data.serverTime) lastPollTime = data.serverTime - 5000;
+          if (Array.isArray(data.logs) && data.logs.length > 0) {
+            for (const item of data.logs) {
+              if (item.log) {
+                ingestExtensionLog(item.log);
+              }
+            }
+          }
+        }
+      } catch (err) {
+        // Silent poll error
+      }
+    }, 6000);
+
+    return () => clearInterval(pollInterval);
+  }, [currentUser, catalog, dailyQueue, revisionCards, reflections, solvingRecords, gamification]);
 
   const initGuestProfile = () => {
     const newGuest: UserProfile = {
@@ -1286,7 +1448,6 @@ export default function App() {
         onOpenAuth={() => setIsAuthOpen(true)}
         onSignOut={handleSignOut}
         onOpenOnboarding={() => setIsOnboardingOpen(true)}
-        onOpenExtensionPair={() => setIsExtensionPairModalOpen(true)}
         dueRevisionsCount={dueRevisions}
         queueProgressText={queueProgressText}
         isCollapsed={isSidebarCollapsed}
@@ -1375,6 +1536,7 @@ export default function App() {
               onSimulateCompletionEvent={handleSimulateCompletionEvent}
               onOpenAuth={() => setIsAuthOpen(true)}
               onOpenExtensionPair={() => setIsExtensionPairModalOpen(true)}
+              onOpenDownloadExtension={() => setIsDownloadExtensionModalOpen(true)}
             />
           )}
 
@@ -1389,6 +1551,8 @@ export default function App() {
               onSignOut={handleSignOut}
               onNavigateTab={setActiveTab}
               onOpenOnboarding={() => setIsOnboardingOpen(true)}
+              onOpenExtensionPair={() => setIsExtensionPairModalOpen(true)}
+              onOpenDownloadExtension={() => setIsDownloadExtensionModalOpen(true)}
             />
           )}
 
@@ -1433,6 +1597,8 @@ export default function App() {
               onSignOut={handleSignOut}
               onNavigateTab={setActiveTab}
               onOpenOnboarding={() => setIsOnboardingOpen(true)}
+              onOpenExtensionPair={() => setIsExtensionPairModalOpen(true)}
+              onOpenDownloadExtension={() => setIsDownloadExtensionModalOpen(true)}
             />
           )}
         </main>
@@ -1473,6 +1639,12 @@ export default function App() {
         userEmail={userProfile?.email || undefined}
         userDisplayName={userProfile?.displayName || undefined}
         onOpenAuth={() => setIsAuthOpen(true)}
+        onOpenDownloadExtension={() => setIsDownloadExtensionModalOpen(true)}
+      />
+
+      <DownloadExtensionModal
+        isOpen={isDownloadExtensionModalOpen}
+        onClose={() => setIsDownloadExtensionModalOpen(false)}
       />
     </div>
   </ThemeProvider>

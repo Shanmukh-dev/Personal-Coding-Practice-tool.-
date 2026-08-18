@@ -24,6 +24,7 @@ interface ExtensionPairModalProps {
   userEmail?: string;
   userDisplayName?: string;
   onOpenAuth?: () => void;
+  onOpenDownloadExtension?: () => void;
 }
 
 export const ExtensionPairModal: React.FC<ExtensionPairModalProps> = ({
@@ -33,6 +34,7 @@ export const ExtensionPairModal: React.FC<ExtensionPairModalProps> = ({
   userEmail,
   userDisplayName,
   onOpenAuth,
+  onOpenDownloadExtension,
 }) => {
   const [pairCode, setPairCode] = useState<string>('');
   const [expiresAt, setExpiresAt] = useState<number | null>(null);
@@ -336,11 +338,18 @@ export const ExtensionPairModal: React.FC<ExtensionPairModalProps> = ({
                 How to Connect Chrome Extension:
               </h4>
               <button
-                onClick={handleDownloadZip}
+                onClick={() => {
+                  if (onOpenDownloadExtension) {
+                    onClose();
+                    onOpenDownloadExtension();
+                  } else {
+                    handleDownloadZip();
+                  }
+                }}
                 className="flex items-center gap-1.5 text-blue-400 hover:text-blue-300 font-medium text-[11px] transition-colors cursor-pointer"
               >
                 <Download className="w-3.5 h-3.5" />
-                <span>Download Extension (.zip)</span>
+                <span>Download Extension</span>
               </button>
             </div>
             <div className="space-y-2 pl-1">
@@ -373,11 +382,18 @@ export const ExtensionPairModal: React.FC<ExtensionPairModalProps> = ({
 
           <div className="flex items-center gap-2">
             <button
-              onClick={handleDownloadZip}
+              onClick={() => {
+                if (onOpenDownloadExtension) {
+                  onClose();
+                  onOpenDownloadExtension();
+                } else {
+                  handleDownloadZip();
+                }
+              }}
               className="flex items-center gap-1.5 px-3 py-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-200 font-medium rounded-xl transition-colors cursor-pointer"
             >
               <Download className="w-3.5 h-3.5" />
-              <span>Get Extension (.zip)</span>
+              <span>Download Extension</span>
             </button>
             <button
               onClick={onClose}

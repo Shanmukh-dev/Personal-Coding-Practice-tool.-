@@ -35,6 +35,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const userDisplayName = document.getElementById('userDisplayName');
   const userEmail = document.getElementById('userEmail');
   const logoutBtn = document.getElementById('logoutBtn');
+  const refreshStatsBtn = document.getElementById('refreshStatsBtn');
   const toggleInput = document.getElementById('trackingToggle');
   const toggleLabel = document.getElementById('toggleStatusLabel');
   const todayDateStr = document.getElementById('todayDateStr');
@@ -48,11 +49,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const monthActiveDays = document.getElementById('monthActiveDays');
   const heatmapGrid = document.getElementById('heatmapGrid');
 
-  const recentLogsList = document.getElementById('recentLogsList');
-  const recentLogsBadge = document.getElementById('recentLogsBadge');
-
   const openAppBtn = document.getElementById('openAppBtn');
-  const testModalBtn = document.getElementById('testModalBtn');
 
   const CLOUD_APP_URL = 'https://ais-dev-xe62wcz6ciunnsbrgansz7-15217695281.asia-east1.run.app';
   let currentAppUrl = CLOUD_APP_URL;
@@ -337,6 +334,22 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
+  // 4b. Refresh / Sync Stats Action
+  if (refreshStatsBtn) {
+    refreshStatsBtn.addEventListener('click', () => {
+      refreshStatsBtn.style.transform = 'rotate(360deg)';
+      refreshStatsBtn.style.transition = 'transform 0.5s ease';
+      setTimeout(() => {
+        refreshStatsBtn.style.transform = 'none';
+        refreshStatsBtn.style.transition = 'none';
+      }, 500);
+
+      chrome.runtime.sendMessage({ type: 'SYNC_USER_STATS' }, (res) => {
+        loadPopupData();
+      });
+    });
+  }
+
   // 5. Watch for storage changes (auto-update if web app pairs in another tab!)
   chrome.storage.onChanged.addListener((changes, area) => {
     if (area === 'local') {
@@ -385,7 +398,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const count = res.todayCount || 0;
         if (todayCountNum) todayCountNum.textContent = count;
 
-        const dailyGoal = 3;
+        const dailyGoal = res.dailyGoal || 3;
         const progressPercent = Math.min(100, Math.round((count / dailyGoal) * 100));
         if (todayProgressBar) todayProgressBar.style.width = `${progressPercent}%`;
 
@@ -394,7 +407,7 @@ document.addEventListener('DOMContentLoaded', () => {
             targetStatusText.textContent = `Goal Reached! (${count}/${dailyGoal})`;
             targetStatusText.style.color = '#34d399';
           } else {
-            targetStatusText.textContent = `${dailyGoal - count} more to reach goal`;
+            targetStatusText.textContent = `${dailyGoal - count} more to reach goal (${count}/${dailyGoal})`;
             targetStatusText.style.color = '#fbbf24';
           }
         }
@@ -405,9 +418,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
         // Render Current Month Heatmap
         renderCurrentMonthHeatmap(res.dailyCounts || {});
-
-        // Render Recent Logs
-        renderRecentLogs(res.recentLogs || []);
       }
     });
   }
@@ -462,19 +472,6 @@ document.addEventListener('DOMContentLoaded', () => {
   if (openAppBtn) {
     openAppBtn.addEventListener('click', () => {
       chrome.tabs.create({ url: currentAppUrl });
-    });
-  }
-
-  // Test Modal on active tab
-  if (testModalBtn) {
-    testModalBtn.addEventListener('click', () => {
-      chrome.runtime.sendMessage({ type: 'TRIGGER_TEST_MODAL' }, (res) => {
-        if (res && res.success) {
-          window.close(); // Close popup so user sees test modal on active tab
-        } else {
-          alert('Could not trigger modal: Please open a LeetCode problem tab first (e.g. leetcode.com/problems/3sum).');
-        }
-      });
     });
   }
 
@@ -552,60 +549,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
     if (monthTotalCount) monthTotalCount.textContent = totalMonthSolved;
     if (monthActiveDays) monthActiveDays.textContent = activeDaysCount;
-  }
-
-  // Helper: Render Recent Logs
-  function renderRecentLogs(logs) {
-    if (!recentLogsList) return;
-    recentLogsList.innerHTML = '';
-
-    if (recentLogsBadge) {
-      recentLogsBadge.textContent = `${logs ? logs.length : 0} ${logs && logs.length === 1 ? 'Log' : 'Logs'}`;
-    }
-
-    if (!logs || logs.length === 0) {
-      recentLogsList.innerHTML = `
-        <div class="empty-logs">
-          No practice reflections logged yet. Solve a problem on LeetCode to auto-trigger reflection!
-        </div>
-      `;
-      return;
-    }
-
-    logs.forEach((log) => {
-      const item = document.createElement('div');
-      item.className = 'log-item';
-
-      const title = log.problemTitle || log.problemSlug || log.title || 'LeetCode Problem';
-      const diff = log.feltDifficulty || log.difficulty || 'Medium';
-      const diffClass = `diff-${diff.toLowerCase()}`;
-      const stars = log.confidence
-        ? '★'.repeat(log.confidence) + '☆'.repeat(Math.max(0, 5 - log.confidence))
-        : '★ ★ ★';
-
-      const timeText = log.timeFormatted || formatTimeAgo(log.timestamp);
-
-      item.innerHTML = `
-        <div class="log-item-header">
-          <span class="log-title" title="${title}">${title}</span>
-          <span class="log-diff ${diffClass}">${diff}</span>
-        </div>
-        <div class="log-meta">
-          <span class="log-stars">${stars}</span>
-          <span>${timeText}</span>
-        </div>
-      `;
-      recentLogsList.appendChild(item);
-    });
-  }
-
-  function formatTimeAgo(timestamp) {
-    if (!timestamp) return 'Recently';
-    const elapsed = Math.floor((Date.now() - timestamp) / 1000);
-    if (elapsed < 60) return 'Just now';
-    if (elapsed < 3600) return `${Math.floor(elapsed / 60)}m ago`;
-    if (elapsed < 86400) return `${Math.floor(elapsed / 3600)}h ago`;
-    return `${Math.floor(elapsed / 86400)}d ago`;
   }
 
   // Auto-reload data whenever local storage changes

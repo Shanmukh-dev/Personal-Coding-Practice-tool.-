@@ -27,9 +27,21 @@ async function detectOmegaTabUrl() {
     const tabs = await chrome.tabs.query({});
     for (const tab of tabs) {
       if (tab.url) {
-        if (tab.url.includes('.run.app') || tab.url.includes('localhost:3000') || tab.url.includes('127.0.0.1:3000')) {
-          const urlObj = new URL(tab.url);
-          return urlObj.origin;
+        if (
+          tab.url.includes('.run.app') ||
+          tab.url.includes('localhost:3000') ||
+          tab.url.includes('127.0.0.1:3000') ||
+          tab.url.includes('localhost:5173') ||
+          tab.url.includes('web.app') ||
+          tab.url.includes('firebaseapp.com') ||
+          tab.url.includes('aistudio.google.com')
+        ) {
+          try {
+            const urlObj = new URL(tab.url);
+            if (urlObj.origin && !urlObj.origin.includes('chrome-extension://')) {
+              return urlObj.origin;
+            }
+          } catch (e) {}
         }
       }
     }
@@ -111,6 +123,57 @@ function updateBadgeState(explicitEnabled) {
 
 // Handle messages from content script, bridge & popup
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  // Bridge Notification: Auth updated
+  if (message.type === 'UPDATE_AUTH_FROM_BRIDGE') {
+    const user = message.user;
+    const appUrl = message.appUrl;
+    const updateObj = {};
+    if (user) updateObj.omega_user = user;
+    if (appUrl) updateObj.omega_app_url = appUrl;
+    chrome.storage.local.set(updateObj, () => {
+      updateBadgeState();
+      sendResponse({ success: true });
+    });
+    return true;
+  }
+
+  // Bridge Notification: Stats updated
+  if (message.type === 'UPDATE_STATS_FROM_BRIDGE') {
+    const stats = message.stats || {};
+    chrome.storage.local.get(
+      [
+        'omega_daily_counts',
+        'omega_streak',
+        'omega_daily_goal',
+        'omega_logs',
+        'omega_monthly_solved',
+        'omega_active_days',
+      ],
+      (res) => {
+        const mergedCounts = { ...(res.omega_daily_counts || {}), ...(stats.dailyCounts || {}) };
+        const mergedLogs = Array.isArray(stats.recentLogs) && stats.recentLogs.length > 0
+          ? stats.recentLogs
+          : (res.omega_logs || []);
+
+        chrome.storage.local.set(
+          {
+            omega_daily_counts: mergedCounts,
+            omega_streak: typeof stats.streak === 'number' ? stats.streak : (res.omega_streak || 0),
+            omega_daily_goal: typeof stats.dailyGoal === 'number' ? stats.dailyGoal : (res.omega_daily_goal || 3),
+            omega_logs: mergedLogs,
+            omega_monthly_solved: typeof stats.monthlySolved === 'number' ? stats.monthlySolved : (res.omega_monthly_solved || 0),
+            omega_active_days: typeof stats.activeDays === 'number' ? stats.activeDays : (res.omega_active_days || 0),
+          },
+          () => {
+            updateBadgeState();
+            sendResponse({ success: true });
+          }
+        );
+      }
+    );
+    return true;
+  }
+
   // 1. Get Status & User
   if (message.type === 'GET_STATUS' || message.type === 'SYNC_USER_STATS') {
     chrome.storage.local.get(
@@ -159,17 +222,34 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             if (statsResp.ok) {
               const cloudStats = await statsResp.json();
               if (cloudStats && cloudStats.success) {
-                dailyCounts = { ...dailyCounts, ...(cloudStats.dailyCounts || {}) };
-                todayCount = typeof cloudStats.todayCount === 'number' ? cloudStats.todayCount : (dailyCounts[todayKey] || 0);
-                streak = typeof cloudStats.streak === 'number' ? cloudStats.streak : streak;
-                dailyGoal = typeof cloudStats.dailyGoal === 'number' ? cloudStats.dailyGoal : dailyGoal;
-                monthlySolved = typeof cloudStats.monthlySolved === 'number' ? cloudStats.monthlySolved : monthlySolved;
-                activeDays = typeof cloudStats.activeDays === 'number' ? cloudStats.activeDays : activeDays;
+                // If cloud has daily counts, merge with local
+                if (cloudStats.dailyCounts && Object.keys(cloudStats.dailyCounts).length > 0) {
+                  dailyCounts = { ...dailyCounts, ...cloudStats.dailyCounts };
+                }
+                
+                if (typeof cloudStats.todayCount === 'number' && (cloudStats.todayCount > 0 || todayCount === 0)) {
+                  todayCount = cloudStats.todayCount;
+                } else if (dailyCounts[todayKey]) {
+                  todayCount = Math.max(todayCount, dailyCounts[todayKey]);
+                }
+
+                if (typeof cloudStats.streak === 'number' && cloudStats.streak > 0) {
+                  streak = cloudStats.streak;
+                }
+                if (typeof cloudStats.dailyGoal === 'number' && cloudStats.dailyGoal > 0) {
+                  dailyGoal = cloudStats.dailyGoal;
+                }
+                if (typeof cloudStats.monthlySolved === 'number' && cloudStats.monthlySolved > 0) {
+                  monthlySolved = cloudStats.monthlySolved;
+                }
+                if (typeof cloudStats.activeDays === 'number' && cloudStats.activeDays > 0) {
+                  activeDays = cloudStats.activeDays;
+                }
 
                 if (Array.isArray(cloudStats.recentLogs) && cloudStats.recentLogs.length > 0) {
                   const existingIds = new Set(logs.map((l) => l.id));
                   const newFromCloud = cloudStats.recentLogs.filter((l) => !existingIds.has(l.id));
-                  logs = [...newFromCloud, ...logs].slice(0, 20);
+                  logs = [...newFromCloud, ...logs].slice(0, 25);
                 }
 
                 // Cache fresh cloud data locally
@@ -188,9 +268,24 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           }
         }
 
+        // Recalculate monthly solved and active days if needed
+        if (monthlySolved === 0 || activeDays === 0) {
+          const currentMonthPrefix = todayKey.substring(0, 7);
+          let mSolved = 0;
+          let mActive = 0;
+          Object.entries(dailyCounts).forEach(([dKey, c]) => {
+            if (dKey.startsWith(currentMonthPrefix) && typeof c === 'number' && c > 0) {
+              mSolved += c;
+              mActive += 1;
+            }
+          });
+          if (mSolved > 0) monthlySolved = mSolved;
+          if (mActive > 0) activeDays = mActive;
+        }
+
         sendResponse({
           enabled: isEnabled,
-          todayCount,
+          todayCount: todayCount || (dailyCounts[todayKey] || 0),
           dailyGoal,
           dailyCounts,
           monthlySolved,
@@ -381,8 +476,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           },
           () => {
             updateBadgeState();
-            // Sync to hosted or local Omega server
+            // Sync to hosted or local Omega server & broadcast to active tabs
             syncToServer(res.omega_app_url || DEFAULT_FALLBACK_URL, newLog, user);
+            broadcastLogToOmegaTabs(newLog, user);
             sendResponse({ success: true, todayCount: dailyCounts[todayKey] });
           }
         );
@@ -391,27 +487,67 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
-  // 8. Trigger Test Modal on Active Tab
-  if (message.type === 'TRIGGER_TEST_MODAL') {
-    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-      if (tabs && tabs[0] && tabs[0].id) {
-        chrome.tabs.sendMessage(
-          tabs[0].id,
-          {
-            type: 'SHOW_LOG_MODAL_MANUAL',
-            problem: message.problem || {
-              title: '3Sum',
-              slug: '3sum',
-              url: tabs[0].url || 'https://leetcode.com/problems/3sum/',
-              difficulty: 'Medium',
-            },
-          },
-          (response) => {
-            sendResponse(response || { success: true });
+  // 8. Fetch Problem Reflection History (to determine First vs Revision format)
+  if (message.type === 'GET_PROBLEM_HISTORY') {
+    const { slug, title, url } = message;
+    const cleanSlug = (slug || '').trim().toLowerCase();
+    const cleanTitle = (title || '').trim().toLowerCase();
+
+    chrome.storage.local.get(['omega_logs', 'omega_user', 'omega_app_url'], async (res) => {
+      const logs = res.omega_logs || [];
+      
+      // 1. Check local storage cache
+      let previousLog = logs.find((l) => {
+        const lSlug = (l.problemSlug || l.slug || '').trim().toLowerCase();
+        const lTitle = (l.problemTitle || l.title || '').trim().toLowerCase();
+        if (cleanSlug && lSlug && cleanSlug === lSlug) return true;
+        if (cleanTitle && lTitle && cleanTitle === lTitle) return true;
+        if (url && l.problemUrl && l.problemUrl === url) return true;
+        return false;
+      });
+
+      // 2. If not found in local cache and server is configured, try querying server
+      if (!previousLog && res.omega_user && res.omega_user.uid) {
+        try {
+          const appUrl = (res.omega_app_url || DEFAULT_FALLBACK_URL).replace(/\/+$/, '');
+          const queryParams = new URLSearchParams({
+            userId: res.omega_user.uid,
+            slug: cleanSlug,
+            title: cleanTitle,
+          });
+          const serverResp = await fetch(`${appUrl}/api/extension/problem-history?${queryParams}`, {
+            headers: { 'Accept': 'application/json' }
+          });
+          if (serverResp.ok) {
+            const historyData = await serverResp.json();
+            if (historyData && historyData.hasPrevious && historyData.previousLog) {
+              previousLog = historyData.previousLog;
+            }
           }
-        );
+        } catch (serverErr) {
+          // Fallback gracefully
+        }
+      }
+
+      if (previousLog) {
+        sendResponse({
+          hasPrevious: true,
+          isRevision: true,
+          previousLog: {
+            confidence: previousLog.confidence || 3,
+            feltDifficulty: previousLog.feltDifficulty || previousLog.difficulty || 'Medium',
+            notes: previousLog.notes || '',
+            timestamp: previousLog.timestamp || Date.now() - 86400000,
+            recognizedPatternImmediately: previousLog.recognizedPatternImmediately ?? true,
+            requiredHintsOrEditorial: previousLog.requiredHintsOrEditorial ?? false,
+          },
+        });
       } else {
-        sendResponse({ success: false, error: 'No active tab found' });
+        sendResponse({
+          hasPrevious: false,
+          isRevision: false,
+          previousLog: null,
+        });
       }
     });
     return true;
@@ -446,5 +582,42 @@ async function syncToServer(appUrl, logData, user) {
       '[Omega Extension] Server sync offline, stored locally in extension storage:',
       err.message
     );
+  }
+}
+
+// Broadcast received logs to any open Omega web app tabs
+function broadcastLogToOmegaTabs(logData, user) {
+  try {
+    chrome.tabs.query({}, (tabs) => {
+      if (!tabs) return;
+      tabs.forEach((tab) => {
+        if (!tab.id) return;
+        const tabUrl = tab.url || '';
+        if (
+          tabUrl.includes('localhost') ||
+          tabUrl.includes('127.0.0.1') ||
+          tabUrl.includes('run.app') ||
+          tabUrl.includes('web.app') ||
+          tabUrl.includes('firebaseapp.com') ||
+          tabUrl.includes('aistudio.google.com')
+        ) {
+          chrome.tabs.sendMessage(
+            tab.id,
+            {
+              type: 'OMEGA_EXTENSION_LOG_RECEIVED',
+              log: logData,
+              user: user,
+            },
+            () => {
+              if (chrome.runtime.lastError) {
+                // Ignore harmless communication errors on tabs without active listeners
+              }
+            }
+          );
+        }
+      });
+    });
+  } catch (e) {
+    console.log('[Omega Extension] Tab broadcast skipped:', e.message);
   }
 }

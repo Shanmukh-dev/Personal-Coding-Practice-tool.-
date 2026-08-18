@@ -1,0 +1,336 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Save Omega Extension to Folder</title>
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+  <style>
+    :root {
+      --bg: #09090b;
+      --card-bg: #18181b;
+      --border: #27272a;
+      --text: #f4f4f5;
+      --muted: #a1a1aa;
+      --accent: #3b82f6;
+      --accent-hover: #2563eb;
+      --emerald: #10b981;
+      --emerald-bg: rgba(16, 185, 129, 0.1);
+      --emerald-border: rgba(16, 185, 129, 0.3);
+    }
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    }
+    body {
+      background-color: var(--bg);
+      color: var(--text);
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      min-height: 100vh;
+      padding: 20px;
+    }
+    .container {
+      width: 100%;
+      max-width: 540px;
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 28px;
+      box-shadow: 0 20px 40px rgba(0,0,0,0.6);
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+    }
+    .header {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+    }
+    .icon-box {
+      width: 44px;
+      height: 44px;
+      border-radius: 12px;
+      background: rgba(59, 130, 246, 0.12);
+      border: 1px solid rgba(59, 130, 246, 0.25);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--accent);
+      font-size: 22px;
+    }
+    h1 {
+      font-size: 18px;
+      font-weight: 700;
+      color: #fff;
+    }
+    p.subtitle {
+      font-size: 13px;
+      color: var(--muted);
+      margin-top: 2px;
+      line-height: 1.4;
+    }
+    .info-card {
+      background: #0d0d10;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 16px;
+      font-size: 13px;
+      color: var(--muted);
+      line-height: 1.5;
+    }
+    .info-card strong {
+      color: #fff;
+    }
+    .info-card code {
+      background: #27272a;
+      color: #60a5fa;
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-family: monospace;
+      font-size: 12px;
+    }
+    .btn {
+      background: var(--accent);
+      color: white;
+      border: none;
+      border-radius: 10px;
+      padding: 14px 20px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      transition: background 0.2s, transform 0.1s;
+    }
+    .btn:hover {
+      background: var(--accent-hover);
+    }
+    .btn:active {
+      transform: scale(0.99);
+    }
+    .btn:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+    }
+    .btn-secondary {
+      background: #27272a;
+      color: #e4e4e7;
+    }
+    .btn-secondary:hover {
+      background: #3f3f46;
+    }
+    .status-box {
+      display: none;
+      padding: 14px;
+      border-radius: 10px;
+      font-size: 13px;
+      line-height: 1.5;
+    }
+    .status-box.success {
+      display: block;
+      background: var(--emerald-bg);
+      border: 1px solid var(--emerald-border);
+      color: #34d399;
+    }
+    .status-box.error {
+      display: block;
+      background: rgba(239, 68, 68, 0.1);
+      border: 1px solid rgba(239, 68, 68, 0.3);
+      color: #f87171;
+    }
+    .status-box.loading {
+      display: block;
+      background: rgba(59, 130, 246, 0.1);
+      border: 1px solid rgba(59, 130, 246, 0.3);
+      color: #93c5fd;
+    }
+    .steps-list {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      margin-top: 10px;
+      font-size: 12px;
+      color: #d4d4d8;
+    }
+    .step-item {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+    }
+    .step-num {
+      width: 20px;
+      height: 20px;
+      border-radius: 50%;
+      background: rgba(59, 130, 246, 0.2);
+      color: #60a5fa;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 11px;
+      font-weight: 700;
+      flex-shrink: 0;
+    }
+    .spinner {
+      width: 16px;
+      height: 16px;
+      border: 2px solid rgba(255,255,255,0.3);
+      border-top-color: #fff;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <div class="icon-box">📁</div>
+      <div>
+        <h1>Save Omega Extension</h1>
+        <p class="subtitle">Choose a folder on your computer to save the unpacked extension</p>
+      </div>
+    </div>
+
+    <div class="info-card">
+      <p>This standalone page runs in a top-level window with full native access to the Chromium File System API. Click below to choose any directory (such as <code>Documents</code> or <code>Projects</code>). An <code>omega-extension</code> folder will be created containing all unpacked extension files.</p>
+    </div>
+
+    <div id="statusBox" class="status-box"></div>
+
+    <button id="pickFolderBtn" class="btn" onclick="saveToFolder()">
+      <span>📁 Select Folder & Save Extension</span>
+    </button>
+
+    <div id="stepsSection" style="display:none;" class="info-card">
+      <strong>Next Steps to Load in Chrome:</strong>
+      <div class="steps-list">
+        <div class="step-item">
+          <div class="step-num">1</div>
+          <div>Go to <code>chrome://extensions</code> in your Chrome browser</div>
+        </div>
+        <div class="step-item">
+          <div class="step-num">2</div>
+          <div>Enable <strong>Developer mode</strong> in the top-right corner</div>
+        </div>
+        <div class="step-item">
+          <div class="step-num">3</div>
+          <div>Click <strong>Load unpacked</strong> and select the saved <code id="savedPathCode">omega-extension</code> folder</div>
+        </div>
+      </div>
+    </div>
+
+    <button id="closeBtn" class="btn btn-secondary" style="display:none;" onclick="window.close()">
+      Close This Window
+    </button>
+  </div>
+
+  <script>
+    async function saveToFolder() {
+      const btn = document.getElementById('pickFolderBtn');
+      const statusBox = document.getElementById('statusBox');
+      const stepsSection = document.getElementById('stepsSection');
+      const closeBtn = document.getElementById('closeBtn');
+      const savedPathCode = document.getElementById('savedPathCode');
+
+      if (!('showDirectoryPicker' in window)) {
+        statusBox.className = 'status-box error';
+        statusBox.innerHTML = 'Directory picker is not supported in this browser. Please use Chrome, Edge, or Brave, or download the ZIP archive from the main app.';
+        return;
+      }
+
+      try {
+        btn.disabled = true;
+        btn.innerHTML = '<div class="spinner"></div><span>Opening folder picker...</span>';
+
+        // User picks destination directory
+        const parentHandle = await window.showDirectoryPicker({
+          mode: 'readwrite'
+        });
+
+        btn.innerHTML = '<div class="spinner"></div><span>Downloading & unpacking files...</span>';
+        statusBox.className = 'status-box loading';
+        statusBox.innerText = 'Downloading extension files from server and extracting into selected directory...';
+
+        // Fetch extension ZIP
+        const response = await fetch('/api/extension/download-zip');
+        if (!response.ok) throw new Error('Failed to download extension package from server');
+        const blob = await response.blob();
+
+        const zip = await JSZip.loadAsync(blob);
+
+        // Create omega-extension subfolder
+        const extFolderHandle = await parentHandle.getDirectoryHandle('omega-extension', { create: true });
+
+        for (const [relativePath, zipEntry] of Object.entries(zip.files)) {
+          if (zipEntry.dir) continue;
+
+          const pathParts = relativePath.split('/');
+          let currentDir = extFolderHandle;
+
+          for (let i = 0; i < pathParts.length - 1; i++) {
+            currentDir = await currentDir.getDirectoryHandle(pathParts[i], { create: true });
+          }
+
+          const fileName = pathParts[pathParts.length - 1];
+          const fileHandle = await currentDir.getFileHandle(fileName, { create: true });
+          const writable = await fileHandle.createWritable();
+          const fileData = await zipEntry.async('uint8array');
+          await writable.write(fileData);
+          await writable.close();
+        }
+
+        const savedPath = `${parentHandle.name}/omega-extension`;
+        savedPathCode.innerText = savedPath;
+
+        statusBox.className = 'status-box success';
+        statusBox.innerHTML = `✅ <strong>Success!</strong> All extension files were written to <code>${savedPath}</code>.`;
+        
+        stepsSection.style.display = 'block';
+        closeBtn.style.display = 'flex';
+        btn.style.display = 'none';
+
+        // Notify parent window if opened from an iframe
+        if (window.opener) {
+          try {
+            window.opener.postMessage({
+              type: 'OMEGA_EXTENSION_SAVED_DIR',
+              dirName: savedPath
+            }, '*');
+          } catch (e) {
+            console.log('Could not postMessage to opener:', e);
+          }
+        }
+      } catch (err) {
+        btn.disabled = false;
+        btn.innerHTML = '<span>📁 Select Folder & Save Extension</span>';
+        
+        if (err.name === 'AbortError') {
+          statusBox.className = 'status-box loading';
+          statusBox.innerText = 'Folder selection was cancelled. Click the button above to try again.';
+        } else {
+          console.error(err);
+          statusBox.className = 'status-box error';
+          statusBox.innerHTML = `Error saving files: ${err.message || err}`;
+        }
+      }
+    }
+
+    // Auto-trigger folder picker on load if requested via URL hash/param
+    window.addEventListener('DOMContentLoaded', () => {
+      const params = new URLSearchParams(window.location.search);
+      if (params.get('auto') === '1') {
+        // User gesture needed in modern Chrome for showDirectoryPicker, so keeping button ready
+      }
+    });
+  </script>
+</body>
+</html>

@@ -35,7 +35,7 @@ interface ExtensionLogRecord {
 }
 const extensionLogsHistory: ExtensionLogRecord[] = [];
 
-// In-memory cache for user stats (heatmap, solved counts, streak, logs)
+// In-memory & disk cache for user stats (heatmap, solved counts, streak, logs)
 interface UserStatsData {
   userId: string;
   userEmail?: string;
@@ -58,6 +58,44 @@ interface UserStatsData {
   updatedAt: number;
 }
 const userStatsCacheMap = new Map<string, UserStatsData>();
+
+const STATS_FILE = path.join(process.cwd(), '.omega_user_stats_cache.json');
+const LOGS_FILE = path.join(process.cwd(), '.omega_extension_logs.json');
+
+function loadPersistedData() {
+  try {
+    if (fs.existsSync(STATS_FILE)) {
+      const data = JSON.parse(fs.readFileSync(STATS_FILE, 'utf-8'));
+      if (Array.isArray(data)) {
+        data.forEach(([k, v]) => userStatsCacheMap.set(k, v));
+      }
+    }
+    if (fs.existsSync(LOGS_FILE)) {
+      const data = JSON.parse(fs.readFileSync(LOGS_FILE, 'utf-8'));
+      if (Array.isArray(data)) {
+        extensionLogsHistory.push(...data.slice(0, 200));
+      }
+    }
+  } catch (e) {
+    console.warn('Persisted data load notice:', e);
+  }
+}
+
+function persistStats() {
+  try {
+    const entries = Array.from(userStatsCacheMap.entries());
+    fs.writeFileSync(STATS_FILE, JSON.stringify(entries), 'utf-8');
+  } catch (e) {}
+}
+
+function persistLogs() {
+  try {
+    fs.writeFileSync(LOGS_FILE, JSON.stringify(extensionLogsHistory.slice(0, 200)), 'utf-8');
+  } catch (e) {}
+}
+
+// Load persisted data on server boot
+loadPersistedData();
 
 // Clean up expired pair codes (older than 15 mins)
 setInterval(() => {
@@ -445,7 +483,7 @@ app.post('/api/extension/log', async (req, res) => {
     }
 
     const logRecord: ExtensionLogRecord = {
-      id: log.id || `ext-${Date.now()}`,
+      id: log.id || `ext-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
       userId: userId || 'guest',
       userEmail: userEmail || undefined,
       log: log,
@@ -457,6 +495,44 @@ app.post('/api/extension/log', async (req, res) => {
     if (extensionLogsHistory.length > 200) {
       extensionLogsHistory.pop();
     }
+
+    // Update in-memory user stat entry for immediate query consistency
+    const userKey = userId || userEmail || 'guest';
+    const now = new Date();
+    const todayDateKey = now.toISOString().split('T')[0];
+    const userStat = userStatsCacheMap.get(userKey) || {
+      userId: userId || 'guest',
+      userEmail: userEmail,
+      todayCount: 0,
+      dailyGoal: 3,
+      streak: 1,
+      dailyCounts: {},
+      monthlySolved: 0,
+      activeDays: 0,
+      recentLogs: [],
+      updatedAt: Date.now(),
+    };
+
+    userStat.dailyCounts[todayDateKey] = (userStat.dailyCounts[todayDateKey] || 0) + 1;
+    userStat.todayCount = userStat.dailyCounts[todayDateKey];
+    userStat.recentLogs.unshift({
+      id: logRecord.id,
+      problemTitle: log.problemTitle || log.problemSlug || 'Problem Reflection',
+      platform: log.platform || 'LeetCode',
+      difficulty: log.feltDifficulty || log.difficulty || 'Medium',
+      verdict: log.verdict || 'Accepted',
+      timeSpent: log.timeSpent || '15m',
+      timeFormatted: new Date(logRecord.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      timestamp: logRecord.timestamp,
+    });
+    userStat.recentLogs = userStat.recentLogs.slice(0, 30);
+    userStat.updatedAt = Date.now();
+
+    userStatsCacheMap.set(userKey, userStat);
+    if (userId) userStatsCacheMap.set(userId, userStat);
+    if (userEmail) userStatsCacheMap.set(userEmail, userStat);
+    persistStats();
+    persistLogs();
 
     console.log(
       `[Omega Server] Received Extension Log for user (${userId || 'guest'}): ${
@@ -506,13 +582,14 @@ app.post('/api/extension/sync-state', (req, res) => {
       dailyCounts: stats?.dailyCounts || existing.dailyCounts || {},
       monthlySolved: typeof stats?.monthlySolved === 'number' ? stats.monthlySolved : existing.monthlySolved,
       activeDays: typeof stats?.activeDays === 'number' ? stats.activeDays : existing.activeDays,
-      recentLogs: Array.isArray(stats?.recentLogs) ? stats.recentLogs : existing.recentLogs,
+      recentLogs: Array.isArray(stats?.recentLogs) && stats.recentLogs.length > 0 ? stats.recentLogs : existing.recentLogs,
       updatedAt: Date.now(),
     };
 
     userStatsCacheMap.set(key, updatedData);
     if (userId) userStatsCacheMap.set(userId, updatedData);
     if (userEmail) userStatsCacheMap.set(userEmail, updatedData);
+    persistStats();
 
     return res.json({ success: true, message: 'Stats synced successfully' });
   } catch (err: any) {
@@ -566,19 +643,22 @@ app.get('/api/extension/user-stats', (req, res) => {
 
     const recentLogs = stats?.recentLogs?.length
       ? stats.recentLogs
-      : relevantLogs.slice(0, 10).map((r) => ({
+      : relevantLogs.slice(0, 20).map((r) => ({
           id: r.id,
           problemTitle: r.log.problemTitle || r.log.problemSlug || 'LeetCode Problem',
           platform: r.log.platform || 'LeetCode',
-          difficulty: r.log.difficulty || 'Medium',
+          difficulty: r.log.feltDifficulty || r.log.difficulty || 'Medium',
           verdict: r.log.verdict || 'Accepted',
           timeSpent: r.log.timeSpent || '15m',
           timeFormatted: new Date(r.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
           timestamp: r.timestamp,
         }));
 
+    const hasData = !!(stats || relevantLogs.length > 0 || Object.keys(computedDailyCounts).length > 0);
+
     return res.json({
       success: true,
+      hasData,
       todayCount: todayCount,
       dailyGoal: stats?.dailyGoal || 3,
       streak: stats?.streak || (todayCount > 0 ? 1 : 0),
@@ -660,6 +740,49 @@ app.get('/api/extension/pending-logs', (req, res) => {
     });
   } catch (err: any) {
     return res.status(500).json({ error: err.message || 'Failed to fetch pending logs' });
+  }
+});
+
+// 7. Problem History Lookup for Extension (determines First Log vs Revision Log format)
+app.get('/api/extension/problem-history', (req, res) => {
+  try {
+    const { userId, slug, title } = req.query;
+    const cleanSlug = ((slug as string) || '').toLowerCase().trim();
+    const cleanTitle = ((title as string) || '').toLowerCase().trim();
+
+    const matchingLog = extensionLogsHistory.find((item) => {
+      if (userId && item.userId !== userId && item.userId !== 'guest') return false;
+      const lSlug = (item.log?.problemSlug || item.log?.slug || '').toLowerCase().trim();
+      const lTitle = (item.log?.problemTitle || item.log?.title || '').toLowerCase().trim();
+      if (cleanSlug && lSlug && cleanSlug === lSlug) return true;
+      if (cleanTitle && lTitle && cleanTitle === lTitle) return true;
+      return false;
+    });
+
+    if (matchingLog && matchingLog.log) {
+      return res.json({
+        success: true,
+        hasPrevious: true,
+        isRevision: true,
+        previousLog: {
+          confidence: matchingLog.log.confidence || 3,
+          feltDifficulty: matchingLog.log.feltDifficulty || matchingLog.log.difficulty || 'Medium',
+          notes: matchingLog.log.notes || '',
+          timestamp: matchingLog.timestamp,
+          recognizedPatternImmediately: matchingLog.log.recognizedPatternImmediately ?? true,
+          requiredHintsOrEditorial: matchingLog.log.requiredHintsOrEditorial ?? false,
+        },
+      });
+    }
+
+    return res.json({
+      success: true,
+      hasPrevious: false,
+      isRevision: false,
+      previousLog: null,
+    });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message || 'Failed to query problem history' });
   }
 });
 

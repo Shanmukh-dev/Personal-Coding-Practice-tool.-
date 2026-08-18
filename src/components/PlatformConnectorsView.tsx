@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Link2, Check, RefreshCw, Copy, CheckCircle2, AlertCircle, Code } from 'lucide-react';
+import { Link2, Check, RefreshCw, Copy, CheckCircle2, AlertCircle, Code, Download, FolderOpen } from 'lucide-react';
 import { Platform, PlatformConnection } from '../types';
 import { ALL_PLATFORMS, generateUserscriptSnippet } from '../services/platformConnectors';
 
@@ -14,6 +14,7 @@ interface PlatformConnectorsViewProps {
   onSimulateCompletionEvent: (platform: Platform, problemTitle: string, problemUrl: string) => Promise<void>;
   onOpenAuth: () => void;
   onOpenExtensionPair?: () => void;
+  onOpenDownloadExtension?: () => void;
 }
 
 export const PlatformConnectorsView: React.FC<PlatformConnectorsViewProps> = ({
@@ -27,6 +28,7 @@ export const PlatformConnectorsView: React.FC<PlatformConnectorsViewProps> = ({
   onSimulateCompletionEvent,
   onOpenAuth,
   onOpenExtensionPair,
+  onOpenDownloadExtension,
 }) => {
   const [connectingPlatform, setConnectingPlatform] = useState<Platform | null>(null);
   const [handleInput, setHandleInput] = useState('');
@@ -281,14 +283,24 @@ export const PlatformConnectorsView: React.FC<PlatformConnectorsViewProps> = ({
           </div>
 
           <div className="flex flex-wrap items-center gap-2.5">
-            <a
-              href="/api/extension/download-zip"
-              download="omega-chrome-extension.zip"
-              className="px-3.5 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-200 font-semibold text-xs transition-all flex items-center gap-1.5 border border-zinc-700 cursor-pointer"
-            >
-              <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-              <span>Download Extension (.zip)</span>
-            </a>
+            {onOpenDownloadExtension ? (
+              <button
+                onClick={onOpenDownloadExtension}
+                className="px-3.5 py-1.5 rounded-lg bg-emerald-600/90 hover:bg-emerald-600 text-white font-semibold text-xs transition-all flex items-center gap-1.5 border border-emerald-500/30 cursor-pointer shadow-sm shadow-emerald-500/10"
+              >
+                <FolderOpen className="w-3.5 h-3.5" />
+                <span>Download Extension</span>
+              </button>
+            ) : (
+              <a
+                href="/api/extension/download-zip"
+                download="omega-chrome-extension.zip"
+                className="px-3.5 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-200 font-semibold text-xs transition-all flex items-center gap-1.5 border border-zinc-700 cursor-pointer"
+              >
+                <Download className="w-3.5 h-3.5" />
+                <span>Download Extension (.zip)</span>
+              </a>
+            )}
 
             <button
               onClick={() => {

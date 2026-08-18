@@ -25,7 +25,6 @@ import {
   Sliders,
   PanelLeftClose,
   PanelLeftOpen,
-  Key,
 } from 'lucide-react';
 import { UserProfile, UserGamification } from '../types';
 import { useTheme } from '../context/ThemeContext';
@@ -41,6 +40,7 @@ interface SidebarProps {
   onSignOut: () => void;
   onOpenOnboarding: () => void;
   onOpenExtensionPair?: () => void;
+  onOpenDownloadExtension?: () => void;
   dueRevisionsCount?: number;
   queueProgressText?: string;
   isCollapsed?: boolean;
@@ -55,7 +55,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onOpenAuth,
   onSignOut,
   onOpenOnboarding,
-  onOpenExtensionPair,
   dueRevisionsCount = 0,
   queueProgressText,
   isCollapsed: propIsCollapsed,
@@ -317,29 +316,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
               </button>
             );
           })}
-
-          {/* Extension Pair Code Quick Action */}
-          {onOpenExtensionPair && (
-            <div className="pt-2">
-              <button
-                onClick={onOpenExtensionPair}
-                title="Generate 6-digit Chrome Extension Pair Code"
-                className={`w-full flex items-center ${
-                  isCollapsed ? 'justify-center p-2.5' : 'justify-between px-3 py-2'
-                } rounded-lg text-xs font-medium bg-blue-500/10 text-blue-400 hover:bg-blue-500/20 border border-blue-500/20 transition-all`}
-              >
-                <div className={`flex items-center ${isCollapsed ? 'justify-center' : 'space-x-2.5'} min-w-0`}>
-                  <Key className="w-4 h-4 shrink-0 text-blue-400" />
-                  {!isCollapsed && <span className="truncate font-semibold">Extension Auth Code</span>}
-                </div>
-                {!isCollapsed && (
-                  <span className="text-[9.5px] font-mono font-bold bg-blue-500/20 text-blue-300 px-1.5 py-0.5 rounded border border-blue-500/30">
-                    6-DIGIT
-                  </span>
-                )}
-              </button>
-            </div>
-          )}
         </div>
 
         {/* Bottom Profile Footer */}

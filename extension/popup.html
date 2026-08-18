@@ -149,9 +149,14 @@
               </div>
               <span class="user-email" id="userEmail">user@example.com</span>
             </div>
-            <button type="button" class="btn-icon" id="logoutBtn" title="Sign out of Omega">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line></svg>
-            </button>
+            <div style="display: flex; gap: 6px; align-items: center;">
+              <button type="button" class="btn-icon" id="refreshStatsBtn" title="Sync & Refresh latest stats from cloud">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>
+              </button>
+              <button type="button" class="btn-icon" id="logoutBtn" title="Sign out of Omega">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line></svg>
+              </button>
+            </div>
           </div>
         </div>
 
@@ -225,31 +230,13 @@
             <span class="legend-label">More</span>
           </div>
         </div>
-
-        <!-- Recent Solved Logs -->
-        <div class="card logs-card">
-          <div class="logs-header">
-            <span class="card-eyebrow">RECENT LEETCODE LOGS</span>
-            <span class="logs-count-badge" id="recentLogsBadge">0 Logs</span>
-          </div>
-          <div class="logs-list" id="recentLogsList">
-            <div class="empty-logs">
-              No submissions recorded yet today. Solve a problem on LeetCode to auto-trigger reflection!
-            </div>
-          </div>
-        </div>
       </main>
 
       <!-- Bottom Actions -->
       <footer class="footer">
-        <button type="button" class="btn btn-primary" id="openAppBtn">
+        <button type="button" class="btn btn-primary w-full" id="openAppBtn">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg>
           <span>Open Omega Dashboard</span>
-        </button>
-
-        <button type="button" class="btn btn-secondary" id="testModalBtn" title="Test triggering reflection dialogue on currently active LeetCode tab">
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
-          <span>Test Log Dialogue</span>
         </button>
       </footer>
     </div>

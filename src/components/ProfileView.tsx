@@ -18,6 +18,10 @@ import {
   AlertCircle,
   Clock,
   Palette,
+  Chrome,
+  Download,
+  Key,
+  FolderOpen,
 } from 'lucide-react';
 import { UserProfile, PlatformConnection, UserGamification } from '../types';
 import { DSA_PATTERNS } from '../data/dsaPatterns';
@@ -35,6 +39,8 @@ interface ProfileViewProps {
   onSignOut: () => void;
   onNavigateTab: (tab: string) => void;
   onOpenOnboarding: () => void;
+  onOpenExtensionPair?: () => void;
+  onOpenDownloadExtension?: () => void;
 }
 
 export const ProfileView: React.FC<ProfileViewProps> = ({
@@ -47,6 +53,8 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
   onSignOut,
   onNavigateTab,
   onOpenOnboarding,
+  onOpenExtensionPair,
+  onOpenDownloadExtension,
 }) => {
   const { themeMode } = useTheme();
 
@@ -231,6 +239,97 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
             <span className="text-base font-bold text-zinc-100 font-mono mt-0.5 block">
               {connectedPlatforms.length} Active
             </span>
+          </div>
+        </div>
+      </div>
+
+      {/* Chrome Extension & Companion Suite */}
+      <div className="p-6 rounded-2xl bg-zinc-900 border border-zinc-800 space-y-5 shadow-lg">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-zinc-800/80 pb-4">
+          <div className="flex items-center space-x-3.5">
+            <div className="w-11 h-11 rounded-xl bg-blue-500/10 border border-blue-500/20 text-blue-400 flex items-center justify-center font-bold text-xl shrink-0">
+              <Chrome className="w-5 h-5 text-blue-400" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h2 className="text-base font-bold text-zinc-100">Omega Chrome Extension</h2>
+                <span className="px-2 py-0.5 text-[10px] font-semibold tracking-wide bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 rounded-full font-mono">
+                  Manifest V3
+                </span>
+              </div>
+              <p className="text-xs text-zinc-400 mt-0.5">
+                Seamlessly capture LeetCode submissions, trigger instant reflection prompts, and synchronize practice streaks.
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => onNavigateTab('connectors')}
+              className="text-xs text-slate-300 hover:text-slate-100 font-mono hover:underline flex items-center gap-1 cursor-pointer"
+            >
+              <span>View All Connectors</span>
+              <ChevronRight className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        </div>
+
+        {/* 2-Column Action Cards for Extension */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {/* 1. Download Extension Card */}
+          <div className="p-4 rounded-xl bg-zinc-950 border border-zinc-800/80 hover:border-emerald-500/40 transition-colors flex flex-col justify-between space-y-4">
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <div className="w-8 h-8 rounded-lg bg-emerald-500/10 text-emerald-400 flex items-center justify-center border border-emerald-500/20">
+                  <Download className="w-4 h-4" />
+                </div>
+                <span className="text-[10px] font-mono text-emerald-400 font-semibold bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20">
+                  Save Folder / ZIP
+                </span>
+              </div>
+              <div>
+                <h3 className="text-sm font-bold text-zinc-100">Download Extension</h3>
+                <p className="text-xs text-zinc-400 leading-relaxed mt-1">
+                  Save the complete unpacked <code className="text-zinc-300 font-mono">omega-extension</code> directory to your computer or download the <code className="text-zinc-300 font-mono">.zip</code> archive to install in Chrome.
+                </p>
+              </div>
+            </div>
+
+            <button
+              onClick={onOpenDownloadExtension}
+              className="w-full py-2.5 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs transition-all flex items-center justify-center gap-2 shadow-sm cursor-pointer"
+            >
+              <FolderOpen className="w-4 h-4" />
+              <span>Download Extension to Machine</span>
+            </button>
+          </div>
+
+          {/* 2. Extension Auth Code Card */}
+          <div className="p-4 rounded-xl bg-zinc-950 border border-zinc-800/80 hover:border-blue-500/40 transition-colors flex flex-col justify-between space-y-4">
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <div className="w-8 h-8 rounded-lg bg-blue-500/10 text-blue-400 flex items-center justify-center border border-blue-500/20">
+                  <Key className="w-4 h-4" />
+                </div>
+                <span className="text-[10px] font-mono text-blue-400 font-semibold bg-blue-500/10 px-2 py-0.5 rounded border border-blue-500/20">
+                  6-Digit One-Time Code
+                </span>
+              </div>
+              <div>
+                <h3 className="text-sm font-bold text-zinc-100">Extension Auth Code</h3>
+                <p className="text-xs text-zinc-400 leading-relaxed mt-1">
+                  Generate a temporary 6-digit pair token to securely authenticate the Chrome extension with your <strong className="text-zinc-200">{userProfile?.displayName || userProfile?.email || 'Omega account'}</strong>.
+                </p>
+              </div>
+            </div>
+
+            <button
+              onClick={onOpenExtensionPair}
+              className="w-full py-2.5 px-4 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-semibold text-xs transition-all flex items-center justify-center gap-2 shadow-sm cursor-pointer"
+            >
+              <Key className="w-4 h-4" />
+              <span>Generate 6-Digit Pair Code</span>
+            </button>
           </div>
         </div>
       </div>

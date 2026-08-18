@@ -14,6 +14,10 @@ import {
   SlidersHorizontal,
   Flame,
   Zap,
+  Chrome,
+  Download,
+  Key,
+  FolderOpen,
 } from 'lucide-react';
 import { UserProfile, PlatformConnection, UserGamification } from '../types';
 import { DSA_PATTERNS } from '../data/dsaPatterns';
@@ -30,6 +34,8 @@ interface SettingsViewProps {
   onSignOut: () => void;
   onNavigateTab: (tab: string) => void;
   onOpenOnboarding: () => void;
+  onOpenExtensionPair?: () => void;
+  onOpenDownloadExtension?: () => void;
 }
 
 export const SettingsView: React.FC<SettingsViewProps> = ({
@@ -41,6 +47,8 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   onSignOut,
   onNavigateTab,
   onOpenOnboarding,
+  onOpenExtensionPair,
+  onOpenDownloadExtension,
 }) => {
   const { themeMode } = useTheme();
 
@@ -345,6 +353,82 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                 </div>
               );
             })}
+          </div>
+        </div>
+      </div>
+
+      {/* Chrome Extension Companion Suite in Settings */}
+      <div className="p-6 rounded-2xl bg-zinc-900 border border-zinc-800 space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-zinc-800/80 pb-4">
+          <div className="flex items-center space-x-3">
+            <div className="w-10 h-10 rounded-xl bg-blue-500/10 border border-blue-500/20 text-blue-400 flex items-center justify-center font-bold shrink-0">
+              <Chrome className="w-5 h-5 text-blue-400" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h3 className="text-base font-bold text-zinc-100">Omega Chrome Extension</h3>
+                <span className="px-2 py-0.5 text-[10px] font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 rounded-full font-mono">
+                  Manifest V3
+                </span>
+              </div>
+              <p className="text-xs text-zinc-400 mt-0.5">
+                Download unpacked extension files and pair with a 6-digit one-time code.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-1">
+          {/* Download Extension Option */}
+          <div className="p-4 rounded-xl bg-zinc-950 border border-zinc-800/80 flex flex-col justify-between space-y-3">
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between">
+                <div className="w-8 h-8 rounded-lg bg-emerald-500/10 text-emerald-400 flex items-center justify-center border border-emerald-500/20">
+                  <Download className="w-4 h-4" />
+                </div>
+                <span className="text-[10px] font-mono text-emerald-400 font-semibold bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20">
+                  Direct Save / ZIP
+                </span>
+              </div>
+              <h4 className="text-sm font-bold text-zinc-100">Download Extension</h4>
+              <p className="text-xs text-zinc-400 leading-relaxed">
+                Save the complete unpacked <code className="text-zinc-300 font-mono">omega-extension</code> directory directly to your machine.
+              </p>
+            </div>
+
+            <button
+              onClick={onOpenDownloadExtension}
+              className="w-full py-2.5 px-3 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs transition-all flex items-center justify-center gap-2 shadow-sm cursor-pointer"
+            >
+              <FolderOpen className="w-4 h-4" />
+              <span>Download Extension</span>
+            </button>
+          </div>
+
+          {/* Extension Auth Code Option */}
+          <div className="p-4 rounded-xl bg-zinc-950 border border-zinc-800/80 flex flex-col justify-between space-y-3">
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between">
+                <div className="w-8 h-8 rounded-lg bg-blue-500/10 text-blue-400 flex items-center justify-center border border-blue-500/20">
+                  <Key className="w-4 h-4" />
+                </div>
+                <span className="text-[10px] font-mono text-blue-400 font-semibold bg-blue-500/10 px-2 py-0.5 rounded border border-blue-500/20">
+                  6-Digit Code
+                </span>
+              </div>
+              <h4 className="text-sm font-bold text-zinc-100">Extension Auth Code</h4>
+              <p className="text-xs text-zinc-400 leading-relaxed">
+                Generate a temporary 6-digit pair token to authenticate the Chrome extension with your account.
+              </p>
+            </div>
+
+            <button
+              onClick={onOpenExtensionPair}
+              className="w-full py-2.5 px-3 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-semibold text-xs transition-all flex items-center justify-center gap-2 shadow-sm cursor-pointer"
+            >
+              <Key className="w-4 h-4" />
+              <span>Generate 6-Digit Code</span>
+            </button>
           </div>
         </div>
       </div>

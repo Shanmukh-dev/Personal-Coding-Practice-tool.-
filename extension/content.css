@@ -226,6 +226,94 @@
   border: 1px solid rgba(239, 68, 68, 0.3) !important;
 }
 
+/* Platform Badges */
+.omega-platform-badge {
+  font-size: 10px !important;
+  font-family: ui-monospace, SFMono-Regular, monospace !important;
+  font-weight: 700 !important;
+  padding: 3px 7px !important;
+  border-radius: 6px !important;
+  text-transform: uppercase !important;
+  letter-spacing: 0.03em !important;
+}
+
+.omega-platform-LeetCode {
+  background: rgba(245, 158, 11, 0.15) !important;
+  color: #fbbf24 !important;
+  border: 1px solid rgba(245, 158, 11, 0.3) !important;
+}
+
+.omega-platform-GeeksforGeeks {
+  background: rgba(16, 185, 129, 0.15) !important;
+  color: #34d399 !important;
+  border: 1px solid rgba(16, 185, 129, 0.3) !important;
+}
+
+.omega-platform-Codeforces {
+  background: rgba(59, 130, 246, 0.15) !important;
+  color: #60a5fa !important;
+  border: 1px solid rgba(59, 130, 246, 0.3) !important;
+}
+
+/* Revision Banner Card */
+.omega-revision-banner {
+  background: linear-gradient(135deg, rgba(30, 41, 59, 0.7), rgba(15, 23, 42, 0.85)) !important;
+  border: 1px solid rgba(99, 102, 241, 0.25) !important;
+  border-radius: 10px !important;
+  padding: 12px 14px !important;
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 8px !important;
+}
+
+.omega-revision-banner-header {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  font-size: 11px !important;
+}
+
+.omega-revision-banner-title {
+  color: #a5b4fc !important;
+  font-weight: 700 !important;
+  display: flex !important;
+  align-items: center !important;
+  gap: 6px !important;
+}
+
+.omega-revision-banner-meta {
+  color: #e0e7ff !important;
+  font-weight: 600 !important;
+  font-family: ui-monospace, SFMono-Regular, monospace !important;
+  font-size: 10.5px !important;
+}
+
+.omega-revision-quote {
+  font-size: 11.5px !important;
+  color: #cbd5e1 !important;
+  font-style: italic !important;
+  line-height: 1.4 !important;
+  padding-left: 8px !important;
+  border-left: 2px solid #6366f1 !important;
+  margin: 0 !important;
+}
+
+.omega-revision-diagnostics {
+  display: flex !important;
+  flex-wrap: wrap !important;
+  gap: 6px !important;
+  font-size: 10px !important;
+  color: #94a3b8 !important;
+}
+
+.omega-revision-tag {
+  background: rgba(255, 255, 255, 0.06) !important;
+  border: 1px solid rgba(255, 255, 255, 0.1) !important;
+  padding: 2px 6px !important;
+  border-radius: 4px !important;
+  font-family: ui-monospace, SFMono-Regular, monospace !important;
+}
+
 /* Sections */
 .omega-section {
   display: flex !important;

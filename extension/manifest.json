@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "Omega - LeetCode Practice Reflection OS",
+  "name": "Omega - DSA Practice & Reflection OS",
   "version": "2.0.0",
-  "description": "Automatically detects LeetCode submissions, locks practice reflections to build retention, and displays daily problem solving heatmap consistency.",
+  "description": "Automatically detects successful submissions on LeetCode, GeeksforGeeks, and Codeforces, prompts practice reflections, and syncs with Omega Dashboard.",
   "icons": {
     "16": "icons/icon16.png",
     "32": "icons/icon32.png",
@@ -34,8 +34,12 @@
   "content_scripts": [
     {
       "matches": [
-        "https://leetcode.com/problems/*",
-        "https://leetcode.cn/problems/*"
+        "https://leetcode.com/*",
+        "https://leetcode.cn/*",
+        "https://*.geeksforgeeks.org/*",
+        "https://practice.geeksforgeeks.org/*",
+        "https://codeforces.com/*",
+        "https://*.codeforces.com/*"
       ],
       "js": ["content.js"],
       "css": ["content.css"],
@@ -45,9 +49,16 @@
       "matches": [
         "http://localhost/*",
         "http://127.0.0.1/*",
-        "https://*.run.app/*"
+        "https://*.run.app/*",
+        "https://*.google.com/*",
+        "https://*.googleusercontent.com/*",
+        "https://*.web.app/*",
+        "https://*.firebaseapp.com/*",
+        "<all_urls>"
       ],
       "js": ["bridge.js"],
+      "all_frames": true,
+      "match_about_blank": true,
       "run_at": "document_start"
     }
   ],
@@ -62,7 +73,11 @@
       ],
       "matches": [
         "https://leetcode.com/*",
-        "https://leetcode.cn/*"
+        "https://leetcode.cn/*",
+        "https://*.geeksforgeeks.org/*",
+        "https://practice.geeksforgeeks.org/*",
+        "https://codeforces.com/*",
+        "https://*.codeforces.com/*"
       ]
     }
   ]
