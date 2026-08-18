@@ -35,6 +35,30 @@ interface ExtensionLogRecord {
 }
 const extensionLogsHistory: ExtensionLogRecord[] = [];
 
+// In-memory cache for user stats (heatmap, solved counts, streak, logs)
+interface UserStatsData {
+  userId: string;
+  userEmail?: string;
+  todayCount: number;
+  dailyGoal: number;
+  streak: number;
+  dailyCounts: Record<string, number>;
+  monthlySolved: number;
+  activeDays: number;
+  recentLogs: Array<{
+    id: string;
+    problemTitle: string;
+    platform?: string;
+    difficulty?: string;
+    verdict?: string;
+    timeSpent?: string | number;
+    timeFormatted?: string;
+    timestamp: number;
+  }>;
+  updatedAt: number;
+}
+const userStatsCacheMap = new Map<string, UserStatsData>();
+
 // Clean up expired pair codes (older than 15 mins)
 setInterval(() => {
   const now = Date.now();
@@ -448,6 +472,124 @@ app.post('/api/extension/log', async (req, res) => {
     });
   } catch (err: any) {
     return res.status(500).json({ error: err.message || 'Failed to process extension log' });
+  }
+});
+
+// 5. Sync User Stats & Heatmap from Web Dashboard to Cloud Extension Bridge
+app.post('/api/extension/sync-state', (req, res) => {
+  try {
+    const { userId, userEmail, stats } = req.body;
+    if (!userId && !userEmail) {
+      return res.status(400).json({ error: 'User identifier required' });
+    }
+
+    const key = userId || userEmail;
+    const existing = userStatsCacheMap.get(key) || {
+      userId: userId || 'guest',
+      userEmail,
+      todayCount: 0,
+      dailyGoal: 3,
+      streak: 0,
+      dailyCounts: {},
+      monthlySolved: 0,
+      activeDays: 0,
+      recentLogs: [],
+      updatedAt: Date.now(),
+    };
+
+    const updatedData: UserStatsData = {
+      userId: userId || existing.userId,
+      userEmail: userEmail || existing.userEmail,
+      todayCount: typeof stats?.todayCount === 'number' ? stats.todayCount : existing.todayCount,
+      dailyGoal: typeof stats?.dailyGoal === 'number' ? stats.dailyGoal : existing.dailyGoal,
+      streak: typeof stats?.streak === 'number' ? stats.streak : existing.streak,
+      dailyCounts: stats?.dailyCounts || existing.dailyCounts || {},
+      monthlySolved: typeof stats?.monthlySolved === 'number' ? stats.monthlySolved : existing.monthlySolved,
+      activeDays: typeof stats?.activeDays === 'number' ? stats.activeDays : existing.activeDays,
+      recentLogs: Array.isArray(stats?.recentLogs) ? stats.recentLogs : existing.recentLogs,
+      updatedAt: Date.now(),
+    };
+
+    userStatsCacheMap.set(key, updatedData);
+    if (userId) userStatsCacheMap.set(userId, updatedData);
+    if (userEmail) userStatsCacheMap.set(userEmail, updatedData);
+
+    return res.json({ success: true, message: 'Stats synced successfully' });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message || 'Failed to sync stats' });
+  }
+});
+
+// 6. Extension Query: Get User Stats, Today's Solved, Heatmap, Streak, & Recent Logs
+app.get('/api/extension/user-stats', (req, res) => {
+  try {
+    const userId = req.query.userId as string | undefined;
+    const userEmail = req.query.email as string | undefined;
+
+    let stats: UserStatsData | undefined;
+    if (userId && userStatsCacheMap.has(userId)) {
+      stats = userStatsCacheMap.get(userId);
+    } else if (userEmail && userStatsCacheMap.has(userEmail)) {
+      stats = userStatsCacheMap.get(userEmail);
+    }
+
+    // If no synced stats found, synthesize from recent extension logs
+    const relevantLogs = extensionLogsHistory.filter(
+      (r) => (userId && r.userId === userId) || (userEmail && r.userEmail === userEmail)
+    );
+
+    const now = new Date();
+    const todayDateKey = now.toISOString().split('T')[0];
+    const currentMonthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+
+    const computedDailyCounts: Record<string, number> = { ...(stats?.dailyCounts || {}) };
+    
+    // Aggregate extension logs into daily counts if not already counted
+    relevantLogs.forEach((rec) => {
+      const dKey = new Date(rec.timestamp).toISOString().split('T')[0];
+      computedDailyCounts[dKey] = (computedDailyCounts[dKey] || 0) + 1;
+    });
+
+    const todayCount =
+      typeof stats?.todayCount === 'number'
+        ? Math.max(stats.todayCount, computedDailyCounts[todayDateKey] || 0)
+        : (computedDailyCounts[todayDateKey] || 0);
+
+    let monthlySolved = 0;
+    let activeDays = 0;
+    Object.entries(computedDailyCounts).forEach(([dKey, count]) => {
+      if (dKey.startsWith(currentMonthKey) && count > 0) {
+        monthlySolved += count;
+        activeDays += 1;
+      }
+    });
+
+    const recentLogs = stats?.recentLogs?.length
+      ? stats.recentLogs
+      : relevantLogs.slice(0, 10).map((r) => ({
+          id: r.id,
+          problemTitle: r.log.problemTitle || r.log.problemSlug || 'LeetCode Problem',
+          platform: r.log.platform || 'LeetCode',
+          difficulty: r.log.difficulty || 'Medium',
+          verdict: r.log.verdict || 'Accepted',
+          timeSpent: r.log.timeSpent || '15m',
+          timeFormatted: new Date(r.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+          timestamp: r.timestamp,
+        }));
+
+    return res.json({
+      success: true,
+      todayCount: todayCount,
+      dailyGoal: stats?.dailyGoal || 3,
+      streak: stats?.streak || (todayCount > 0 ? 1 : 0),
+      dailyCounts: computedDailyCounts,
+      monthlySolved: stats?.monthlySolved || monthlySolved,
+      activeDays: stats?.activeDays || activeDays,
+      recentLogs: recentLogs,
+      lastSync: stats?.updatedAt || Date.now(),
+    });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message || 'Failed to fetch user stats' });
   }
 });
 

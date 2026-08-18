@@ -63,6 +63,28 @@
       }
     }
 
+    // Handle user stats synchronization from web app (heatmap, streak, today solved, recent logs)
+    if (event.data.type === 'OMEGA_SET_STATS') {
+      const stats = event.data.stats;
+      if (stats && typeof stats === 'object') {
+        chrome.storage.local.set(
+          {
+            omega_daily_counts: stats.dailyCounts || {},
+            omega_streak: stats.streak || 0,
+            omega_today_count: stats.todayCount || 0,
+            omega_daily_goal: stats.dailyGoal || 3,
+            omega_logs: stats.recentLogs || [],
+            omega_monthly_solved: stats.monthlySolved || 0,
+            omega_active_days: stats.activeDays || 0,
+            omega_last_stats_sync: Date.now(),
+          },
+          () => {
+            console.log('[Omega Extension Bridge] Stats synchronized from web app:', stats.todayCount, 'today, streak:', stats.streak);
+          }
+        );
+      }
+    }
+
     // Handle user logout synchronization from web app
     if (event.data.type === 'OMEGA_LOGOUT') {
       chrome.storage.local.set({ omega_user: null }, () => {

@@ -158,7 +158,7 @@ export default function App() {
     return () => unsubscribe();
   }, []);
 
-  // Broadcast auth state to Chrome Extension whenever auth changes or extension requests it
+  // Broadcast auth state & user activity stats to Chrome Extension
   useEffect(() => {
     const broadcastToExtension = () => {
       try {
@@ -177,6 +177,109 @@ export default function App() {
             '*'
           );
         }
+
+        // Calculate aggregate daily counts for heatmap
+        const dailyCountsMap: Record<string, number> = {};
+        const todayDateKey = getLocalDateKey();
+
+        // 1. From solving records
+        (solvingRecords || []).forEach((r) => {
+          if (r.completedAt) {
+            const dKey = getLocalDateKey(r.completedAt);
+            dailyCountsMap[dKey] = (dailyCountsMap[dKey] || 0) + 1;
+          }
+        });
+
+        // 2. From reflections (if not already counted)
+        (reflections || []).forEach((ref) => {
+          if (ref.timestamp) {
+            const dKey = getLocalDateKey(ref.timestamp);
+            if (!dailyCountsMap[dKey]) {
+              dailyCountsMap[dKey] = 1;
+            }
+          }
+        });
+
+        // 3. From completed daily queue items
+        (dailyQueue || []).forEach((item) => {
+          if (item.status === 'completed' && item.dateKey) {
+            dailyCountsMap[item.dateKey] = Math.max(dailyCountsMap[item.dateKey] || 0, 1);
+          }
+        });
+
+        const now = new Date();
+        const currentMonthPrefix = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+        let monthlySolved = 0;
+        let activeDays = 0;
+
+        Object.entries(dailyCountsMap).forEach(([dKey, count]) => {
+          if (dKey.startsWith(currentMonthPrefix) && count > 0) {
+            monthlySolved += count;
+            activeDays += 1;
+          }
+        });
+
+        const todayCount = dailyCountsMap[todayDateKey] || 0;
+        const streak = gamification?.currentStreak || (todayCount > 0 ? 1 : 0);
+        const dailyGoal = userProfile?.dailyLimit || 3;
+
+        // Build recent solved logs list
+        const recentLogs = [
+          ...reflections.map((r) => ({
+            id: r.id,
+            problemTitle: r.problemTitle,
+            platform: 'LeetCode',
+            difficulty: 'Medium',
+            verdict: 'Accepted',
+            timeSpent: `${r.timeSpentMinutes || 15}m`,
+            timeFormatted: new Date(r.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+            timestamp: r.timestamp,
+          })),
+          ...solvingRecords.map((s) => ({
+            id: s.id,
+            problemTitle: s.problemTitle || 'LeetCode Problem',
+            platform: s.platform || 'LeetCode',
+            difficulty: 'Medium',
+            verdict: s.verdict || 'Accepted',
+            timeSpent: s.timeSpent ? `${Math.round(s.timeSpent / 60)}m` : '15m',
+            timeFormatted: new Date(s.completedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+            timestamp: s.completedAt,
+          })),
+        ]
+          .sort((a, b) => b.timestamp - a.timestamp)
+          .slice(0, 10);
+
+        const statsPayload = {
+          todayCount,
+          dailyGoal,
+          streak,
+          dailyCounts: dailyCountsMap,
+          monthlySolved,
+          activeDays,
+          recentLogs,
+        };
+
+        // Post to extension content script bridge
+        window.postMessage(
+          {
+            type: 'OMEGA_SET_STATS',
+            stats: statsPayload,
+          },
+          '*'
+        );
+
+        // Also sync with server endpoint for standalone extension query
+        if (currentUser?.uid || currentUser?.email) {
+          fetch('/api/extension/sync-state', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              userId: currentUser?.uid,
+              userEmail: currentUser?.email,
+              stats: statsPayload,
+            }),
+          }).catch(() => {});
+        }
       } catch (err) {
         console.warn('Extension bridge broadcast error:', err);
       }
@@ -193,7 +296,7 @@ export default function App() {
 
     window.addEventListener('message', handleExtensionMessages);
     return () => window.removeEventListener('message', handleExtensionMessages);
-  }, [currentUser]);
+  }, [currentUser, solvingRecords, reflections, dailyQueue, gamification, userProfile]);
 
   const initGuestProfile = () => {
     const newGuest: UserProfile = {

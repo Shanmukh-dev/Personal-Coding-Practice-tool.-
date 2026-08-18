@@ -1,6 +1,7 @@
 // Omega Background Service Worker (Manifest V3)
 
-const DEFAULT_FALLBACK_URL = 'http://localhost:3000';
+const DEFAULT_FALLBACK_URL = 'https://ais-dev-xe62wcz6ciunnsbrgansz7-15217695281.asia-east1.run.app';
+const APPLET_ID = 'b890841e-b34c-4b6c-a3b5-1066998148ae';
 
 // Initialize default state & badge on install/startup
 chrome.runtime.onInstalled.addListener(() => {
@@ -111,7 +112,7 @@ function updateBadgeState(explicitEnabled) {
 // Handle messages from content script, bridge & popup
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   // 1. Get Status & User
-  if (message.type === 'GET_STATUS') {
+  if (message.type === 'GET_STATUS' || message.type === 'SYNC_USER_STATS') {
     chrome.storage.local.get(
       [
         'omega_enabled',
@@ -120,6 +121,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         'omega_app_url',
         'omega_streak',
         'omega_user',
+        'omega_daily_goal',
+        'omega_monthly_solved',
+        'omega_active_days',
       ],
       async (res) => {
         let appUrl = res.omega_app_url;
@@ -130,21 +134,71 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             chrome.storage.local.set({ omega_app_url: detected });
           }
         }
+        appUrl = (appUrl || DEFAULT_FALLBACK_URL).replace(/\/+$/, '');
 
         const todayKey = getTodayKey();
-        const dailyCounts = res.omega_daily_counts || {};
-        const todayCount = dailyCounts[todayKey] || 0;
-        const logs = res.omega_logs || [];
+        let dailyCounts = res.omega_daily_counts || {};
+        let todayCount = dailyCounts[todayKey] || 0;
+        let logs = res.omega_logs || [];
+        let streak = res.omega_streak || (todayCount > 0 ? 1 : 0);
+        let dailyGoal = res.omega_daily_goal || 3;
+        let monthlySolved = res.omega_monthly_solved || 0;
+        let activeDays = res.omega_active_days || 0;
+        const user = res.omega_user || null;
         const isEnabled = res.omega_enabled !== undefined ? res.omega_enabled : true;
+
+        // Try to fetch latest live stats from Omega Cloud Server if user is connected
+        if (user && (user.uid || user.email)) {
+          try {
+            const queryParams = new URLSearchParams();
+            if (user.uid) queryParams.set('userId', user.uid);
+            if (user.email) queryParams.set('email', user.email);
+
+            const fetchUrl = `${appUrl}/api/extension/user-stats?${queryParams.toString()}`;
+            const statsResp = await fetch(fetchUrl);
+            if (statsResp.ok) {
+              const cloudStats = await statsResp.json();
+              if (cloudStats && cloudStats.success) {
+                dailyCounts = { ...dailyCounts, ...(cloudStats.dailyCounts || {}) };
+                todayCount = typeof cloudStats.todayCount === 'number' ? cloudStats.todayCount : (dailyCounts[todayKey] || 0);
+                streak = typeof cloudStats.streak === 'number' ? cloudStats.streak : streak;
+                dailyGoal = typeof cloudStats.dailyGoal === 'number' ? cloudStats.dailyGoal : dailyGoal;
+                monthlySolved = typeof cloudStats.monthlySolved === 'number' ? cloudStats.monthlySolved : monthlySolved;
+                activeDays = typeof cloudStats.activeDays === 'number' ? cloudStats.activeDays : activeDays;
+
+                if (Array.isArray(cloudStats.recentLogs) && cloudStats.recentLogs.length > 0) {
+                  const existingIds = new Set(logs.map((l) => l.id));
+                  const newFromCloud = cloudStats.recentLogs.filter((l) => !existingIds.has(l.id));
+                  logs = [...newFromCloud, ...logs].slice(0, 20);
+                }
+
+                // Cache fresh cloud data locally
+                chrome.storage.local.set({
+                  omega_daily_counts: dailyCounts,
+                  omega_streak: streak,
+                  omega_daily_goal: dailyGoal,
+                  omega_logs: logs,
+                  omega_monthly_solved: monthlySolved,
+                  omega_active_days: activeDays,
+                });
+              }
+            }
+          } catch (cloudErr) {
+            console.log('[Omega Extension] Fallback to local storage:', cloudErr.message);
+          }
+        }
 
         sendResponse({
           enabled: isEnabled,
           todayCount,
+          dailyGoal,
           dailyCounts,
+          monthlySolved,
+          activeDays,
           recentLogs: logs.slice(0, 10),
           appUrl: appUrl || DEFAULT_FALLBACK_URL,
-          streak: res.omega_streak || (todayCount > 0 ? 1 : 0),
-          user: res.omega_user || null,
+          streak,
+          user,
         });
       }
     );

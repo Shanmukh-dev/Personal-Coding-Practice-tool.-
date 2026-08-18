@@ -54,8 +54,22 @@ document.addEventListener('DOMContentLoaded', () => {
   const openAppBtn = document.getElementById('openAppBtn');
   const testModalBtn = document.getElementById('testModalBtn');
 
-  let currentAppUrl = 'http://localhost:3000';
+  const CLOUD_APP_URL = 'https://ais-dev-xe62wcz6ciunnsbrgansz7-15217695281.asia-east1.run.app';
+  let currentAppUrl = CLOUD_APP_URL;
   let isSignUpMode = false;
+
+  // Helper to normalize and convert AI Studio URL if needed
+  function normalizeAppUrl(rawUrl) {
+    if (!rawUrl) return CLOUD_APP_URL;
+    let url = rawUrl.trim();
+    if (url.includes('aistudio.google.com/apps')) {
+      return CLOUD_APP_URL;
+    }
+    if (!/^https?:\/\//i.test(url)) {
+      url = 'https://' + url;
+    }
+    return url.replace(/\/+$/, '');
+  }
 
   // Format today's date readable
   const now = new Date();
@@ -78,15 +92,12 @@ document.addEventListener('DOMContentLoaded', () => {
   // 2. Save Server URL
   if (saveServerUrlBtn && serverUrlInput) {
     saveServerUrlBtn.addEventListener('click', () => {
-      let newUrl = (serverUrlInput.value || '').trim();
-      if (!newUrl) {
+      let rawUrl = (serverUrlInput.value || '').trim();
+      if (!rawUrl) {
         showAuthAlert('Please enter a valid Omega App URL', 'error');
         return;
       }
-      if (!/^https?:\/\//i.test(newUrl)) {
-        newUrl = 'https://' + newUrl;
-      }
-      newUrl = newUrl.replace(/\/+$/, '');
+      const newUrl = normalizeAppUrl(rawUrl);
       currentAppUrl = newUrl;
       serverUrlInput.value = newUrl;
 
@@ -109,6 +120,9 @@ document.addEventListener('DOMContentLoaded', () => {
             if (tab.url.includes('.run.app') || tab.url.includes('localhost:3000') || tab.url.includes('127.0.0.1:3000')) {
               foundUrl = new URL(tab.url).origin;
               break;
+            } else if (tab.url.includes('aistudio.google.com/apps')) {
+              foundUrl = CLOUD_APP_URL;
+              break;
             }
           }
         }
@@ -117,7 +131,7 @@ document.addEventListener('DOMContentLoaded', () => {
           currentAppUrl = foundUrl;
           if (serverUrlInput) serverUrlInput.value = foundUrl;
           chrome.runtime.sendMessage({ type: 'SET_APP_URL', url: foundUrl }, () => {
-            showAuthAlert(`Detected active Omega tab: ${foundUrl}`, 'success');
+            showAuthAlert(`Connected to Omega Cloud: ${foundUrl}`, 'success');
             testServerConnectivity(foundUrl);
           });
         } else {
@@ -464,7 +478,7 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  // Helper: Render Current Month Heatmap
+  // Helper: Render Current Month Heatmap using week columns aligned with S M T W T F S
   function renderCurrentMonthHeatmap(dailyCounts) {
     if (!heatmapGrid) return;
     heatmapGrid.innerHTML = '';
@@ -480,46 +494,60 @@ document.addEventListener('DOMContentLoaded', () => {
       monthNameLabel.textContent = `${monthNames[currentMonth]} ${currentYear}`;
     }
 
-    const firstDay = new Date(currentYear, currentMonth, 1).getDay(); // 0 = Sun
+    const firstDayOfWeek = new Date(currentYear, currentMonth, 1).getDay(); // 0 = Sun .. 6 = Sat
     const totalDaysInMonth = new Date(currentYear, currentMonth + 1, 0).getDate();
 
     let totalMonthSolved = 0;
     let activeDaysCount = 0;
 
-    // Pad blank days before 1st of the month
-    for (let i = 0; i < firstDay; i++) {
-      const blank = document.createElement('div');
-      blank.className = 'hm-cell empty';
-      heatmapGrid.appendChild(blank);
-    }
+    // Calculate total weeks (columns)
+    const totalCells = firstDayOfWeek + totalDaysInMonth;
+    const totalWeeks = Math.ceil(totalCells / 7);
 
-    // Days of month
-    for (let day = 1; day <= totalDaysInMonth; day++) {
-      const dayStr = String(day).padStart(2, '0');
-      const monthStr = String(currentMonth + 1).padStart(2, '0');
-      const dateKey = `${currentYear}-${monthStr}-${dayStr}`;
+    let currentDayNumber = 1;
 
-      const count = dailyCounts[dateKey] || 0;
-      totalMonthSolved += count;
-      if (count > 0) activeDaysCount++;
+    for (let w = 0; w < totalWeeks; w++) {
+      const col = document.createElement('div');
+      col.className = 'heatmap-col';
 
-      const isToday =
-        day === now.getDate() &&
-        currentMonth === now.getMonth() &&
-        currentYear === now.getFullYear();
+      for (let dayOfWeek = 0; dayOfWeek < 7; dayOfWeek++) {
+        const cellIndex = w * 7 + dayOfWeek;
+        const sq = document.createElement('div');
 
-      const cell = document.createElement('div');
-      let lvClass = 'lv0';
-      if (count === 1) lvClass = 'lv1';
-      else if (count === 2) lvClass = 'lv2';
-      else if (count >= 3 && count <= 4) lvClass = 'lv3';
-      else if (count >= 5) lvClass = 'lv4';
+        if (cellIndex < firstDayOfWeek || currentDayNumber > totalDaysInMonth) {
+          sq.className = 'heatmap-sq outside-month';
+        } else {
+          const day = currentDayNumber;
+          currentDayNumber++;
 
-      cell.className = `hm-cell ${lvClass} ${isToday ? 'today-ring' : ''}`;
-      cell.setAttribute('data-date', `${monthNames[currentMonth].substring(0, 3)} ${day}: ${count} solved`);
-      cell.title = `${dateKey}: ${count} solved`;
+          const dayStr = String(day).padStart(2, '0');
+          const monthStr = String(currentMonth + 1).padStart(2, '0');
+          const dateKey = `${currentYear}-${monthStr}-${dayStr}`;
 
-      heatmapGrid.appendChild(cell);
+          const count = dailyCounts[dateKey] || 0;
+          totalMonthSolved += count;
+          if (count > 0) activeDaysCount++;
+
+          const isToday =
+            day === now.getDate() &&
+            currentMonth === now.getMonth() &&
+            currentYear === now.getFullYear();
+
+          let lvClass = 'lv0';
+          if (count === 1) lvClass = 'lv1';
+          else if (count === 2) lvClass = 'lv2';
+          else if (count >= 3 && count <= 4) lvClass = 'lv3';
+          else if (count >= 5) lvClass = 'lv4';
+
+          sq.className = `heatmap-sq ${lvClass} ${isToday ? 'is-today' : ''}`;
+          sq.setAttribute('data-date', `${monthNames[currentMonth].substring(0, 3)} ${day}: ${count} solved`);
+          sq.title = `${dateKey}: ${count} solved`;
+        }
+
+        col.appendChild(sq);
+      }
+
+      heatmapGrid.appendChild(col);
     }
 
     if (monthTotalCount) monthTotalCount.textContent = totalMonthSolved;
@@ -532,10 +560,10 @@ document.addEventListener('DOMContentLoaded', () => {
     recentLogsList.innerHTML = '';
 
     if (recentLogsBadge) {
-      recentLogsBadge.textContent = `${logs.length} ${logs.length === 1 ? 'Log' : 'Logs'}`;
+      recentLogsBadge.textContent = `${logs ? logs.length : 0} ${logs && logs.length === 1 ? 'Log' : 'Logs'}`;
     }
 
-    if (logs.length === 0) {
+    if (!logs || logs.length === 0) {
       recentLogsList.innerHTML = `
         <div class="empty-logs">
           No practice reflections logged yet. Solve a problem on LeetCode to auto-trigger reflection!
@@ -548,18 +576,23 @@ document.addEventListener('DOMContentLoaded', () => {
       const item = document.createElement('div');
       item.className = 'log-item';
 
+      const title = log.problemTitle || log.problemSlug || log.title || 'LeetCode Problem';
       const diff = log.feltDifficulty || log.difficulty || 'Medium';
       const diffClass = `diff-${diff.toLowerCase()}`;
-      const stars = '★'.repeat(log.confidence || 3) + '☆'.repeat(5 - (log.confidence || 3));
+      const stars = log.confidence
+        ? '★'.repeat(log.confidence) + '☆'.repeat(Math.max(0, 5 - log.confidence))
+        : '★ ★ ★';
+
+      const timeText = log.timeFormatted || formatTimeAgo(log.timestamp);
 
       item.innerHTML = `
         <div class="log-item-header">
-          <span class="log-title" title="${log.problemTitle || log.problemSlug}">${log.problemTitle || log.problemSlug}</span>
+          <span class="log-title" title="${title}">${title}</span>
           <span class="log-diff ${diffClass}">${diff}</span>
         </div>
         <div class="log-meta">
           <span class="log-stars">${stars}</span>
-          <span>${formatTimeAgo(log.timestamp)}</span>
+          <span>${timeText}</span>
         </div>
       `;
       recentLogsList.appendChild(item);
@@ -573,5 +606,14 @@ document.addEventListener('DOMContentLoaded', () => {
     if (elapsed < 3600) return `${Math.floor(elapsed / 60)}m ago`;
     if (elapsed < 86400) return `${Math.floor(elapsed / 3600)}h ago`;
     return `${Math.floor(elapsed / 86400)}d ago`;
+  }
+
+  // Auto-reload data whenever local storage changes
+  if (chrome.storage && chrome.storage.onChanged) {
+    chrome.storage.onChanged.addListener((changes, areaName) => {
+      if (areaName === 'local') {
+        loadPopupData();
+      }
+    });
   }
 });
