@@ -152,6 +152,10 @@ export const Dashboard: React.FC<DashboardProps> = ({
     (s) => s.completedAt >= startOfTodayMs && s.completedAt <= endOfTodayMs
   );
 
+  const reflectionsToday = (reflections || []).filter(
+    (r) => r.timestamp >= startOfTodayMs && r.timestamp <= endOfTodayMs
+  );
+
   const revisionsFromRecords = recordsToday.filter(
     (s) => s.source === 'revision' || s.isRevision
   ).length;
@@ -171,7 +175,11 @@ export const Dashboard: React.FC<DashboardProps> = ({
 
   const completedQueueCount = Math.max(completedScheduledQueue.length, scheduledFromRecords);
 
-  const totalCompletedToday = completedQueueCount + revisedTodayCount;
+  const totalCompletedToday = Math.max(
+    completedQueueCount + revisedTodayCount,
+    recordsToday.length,
+    reflectionsToday.length
+  );
   const totalScheduledToday = dailyQueue.filter(
     (item) => item.dateKey === todayKey || item.status === 'carried_over'
   ).length;

@@ -551,6 +551,45 @@ app.post('/api/extension/log', async (req, res) => {
   }
 });
 
+// 4b. Extension Query: Get Pending Logs for Web Dashboard Ingestion
+app.get('/api/extension/pending-logs', (req, res) => {
+  try {
+    const userId = req.query.userId as string | undefined;
+    const userEmail = (req.query.userEmail || req.query.email) as string | undefined;
+    const since = req.query.since ? parseInt(req.query.since as string, 10) : 0;
+
+    let matchedLogs = extensionLogsHistory;
+    if (userId || userEmail) {
+      matchedLogs = matchedLogs.filter((r) => {
+        // Match specific user, email, or guest logs
+        if (userId && r.userId === userId) return true;
+        if (userEmail && r.userEmail === userEmail) return true;
+        if (!r.userId || r.userId === 'guest') return true;
+        return false;
+      });
+    }
+
+    if (since > 0) {
+      matchedLogs = matchedLogs.filter((r) => r.timestamp > since);
+    }
+
+    return res.json({
+      success: true,
+      serverTime: Date.now(),
+      count: matchedLogs.length,
+      logs: matchedLogs.map((item) => ({
+        id: item.id,
+        userId: item.userId,
+        userEmail: item.userEmail,
+        timestamp: item.timestamp,
+        log: item.log,
+      })),
+    });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message || 'Failed to fetch pending logs' });
+  }
+});
+
 // 5. Sync User Stats & Heatmap from Web Dashboard to Cloud Extension Bridge
 app.post('/api/extension/sync-state', (req, res) => {
   try {
@@ -573,16 +612,85 @@ app.post('/api/extension/sync-state', (req, res) => {
       updatedAt: Date.now(),
     };
 
+    const now = new Date();
+    const todayDateKey = now.toISOString().split('T')[0];
+
+    // Merge daily counts using Math.max so we never decrease or wipe out solved problems
+    const mergedDailyCounts: Record<string, number> = { ...(existing.dailyCounts || {}) };
+    if (stats?.dailyCounts && typeof stats.dailyCounts === 'object') {
+      Object.entries(stats.dailyCounts).forEach(([dKey, val]) => {
+        if (typeof val === 'number') {
+          mergedDailyCounts[dKey] = Math.max(mergedDailyCounts[dKey] || 0, val);
+        }
+      });
+    }
+
+    // Also factor in extension logs history
+    const relevantLogs = extensionLogsHistory.filter(
+      (r) => (userId && r.userId === userId) || (userEmail && r.userEmail === userEmail) || r.userId === 'guest'
+    );
+    relevantLogs.forEach((r) => {
+      const dKey = new Date(r.timestamp).toISOString().split('T')[0];
+      mergedDailyCounts[dKey] = Math.max(mergedDailyCounts[dKey] || 0, 1);
+    });
+
+    const incomingToday = typeof stats?.todayCount === 'number' ? stats.todayCount : 0;
+    const existingToday = typeof existing.todayCount === 'number' ? existing.todayCount : 0;
+    const computedToday = mergedDailyCounts[todayDateKey] || 0;
+    const finalTodayCount = Math.max(incomingToday, existingToday, computedToday);
+    mergedDailyCounts[todayDateKey] = finalTodayCount;
+
+    // Merge recent logs avoiding duplicates
+    const logMap = new Map<string, any>();
+    if (Array.isArray(existing.recentLogs)) {
+      existing.recentLogs.forEach((l: any) => { if (l?.id) logMap.set(l.id, l); });
+    }
+    if (Array.isArray(stats?.recentLogs)) {
+      stats.recentLogs.forEach((l: any) => { if (l?.id) logMap.set(l.id, l); });
+    }
+    relevantLogs.forEach((r) => {
+      if (!logMap.has(r.id)) {
+        logMap.set(r.id, {
+          id: r.id,
+          problemTitle: r.log.problemTitle || r.log.problemSlug || 'Problem Reflection',
+          platform: r.log.platform || 'LeetCode',
+          difficulty: r.log.feltDifficulty || r.log.difficulty || 'Medium',
+          verdict: r.log.verdict || 'Accepted',
+          timeSpent: r.log.timeSpent || '15m',
+          timeFormatted: new Date(r.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+          timestamp: r.timestamp,
+        });
+      }
+    });
+
+    const mergedLogsList = Array.from(logMap.values())
+      .sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0))
+      .slice(0, 30);
+
+    const currentMonthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+    let mSolved = 0;
+    let mActive = 0;
+    Object.entries(mergedDailyCounts).forEach(([dKey, c]) => {
+      if (dKey.startsWith(currentMonthKey) && c > 0) {
+        mSolved += c;
+        mActive += 1;
+      }
+    });
+
     const updatedData: UserStatsData = {
       userId: userId || existing.userId,
       userEmail: userEmail || existing.userEmail,
-      todayCount: typeof stats?.todayCount === 'number' ? stats.todayCount : existing.todayCount,
-      dailyGoal: typeof stats?.dailyGoal === 'number' ? stats.dailyGoal : existing.dailyGoal,
-      streak: typeof stats?.streak === 'number' ? stats.streak : existing.streak,
-      dailyCounts: stats?.dailyCounts || existing.dailyCounts || {},
-      monthlySolved: typeof stats?.monthlySolved === 'number' ? stats.monthlySolved : existing.monthlySolved,
-      activeDays: typeof stats?.activeDays === 'number' ? stats.activeDays : existing.activeDays,
-      recentLogs: Array.isArray(stats?.recentLogs) && stats.recentLogs.length > 0 ? stats.recentLogs : existing.recentLogs,
+      todayCount: finalTodayCount,
+      dailyGoal: typeof stats?.dailyGoal === 'number' && stats.dailyGoal > 0 ? stats.dailyGoal : existing.dailyGoal,
+      streak: Math.max(
+        typeof stats?.streak === 'number' ? stats.streak : 0,
+        existing.streak || 0,
+        finalTodayCount > 0 ? 1 : 0
+      ),
+      dailyCounts: mergedDailyCounts,
+      monthlySolved: Math.max(mSolved, stats?.monthlySolved || 0, existing.monthlySolved || 0),
+      activeDays: Math.max(mActive, stats?.activeDays || 0, existing.activeDays || 0),
+      recentLogs: mergedLogsList,
       updatedAt: Date.now(),
     };
 
@@ -719,13 +827,20 @@ app.get('/api/extension/download-zip', async (req, res) => {
 // 6. Pending Logs Polling Endpoint for Web Dashboard
 app.get('/api/extension/pending-logs', (req, res) => {
   try {
-    const { userId, since } = req.query;
+    const { userId, userEmail, since } = req.query;
     const sinceTimestamp = since ? Number(since) : 0;
 
     let logs = extensionLogsHistory.filter((item) => item.timestamp > sinceTimestamp);
 
     if (userId && userId !== 'all') {
-      logs = logs.filter((item) => item.userId === userId || item.userId === 'guest');
+      const emailStr = typeof userEmail === 'string' ? userEmail.trim().toLowerCase() : '';
+      logs = logs.filter(
+        (item) =>
+          item.userId === userId ||
+          item.userId === 'guest' ||
+          !item.userId ||
+          (emailStr && item.userEmail && item.userEmail.toLowerCase() === emailStr)
+      );
     }
 
     return res.json({
@@ -733,6 +848,7 @@ app.get('/api/extension/pending-logs', (req, res) => {
       logs: logs.map((l) => ({
         id: l.id,
         userId: l.userId,
+        userEmail: l.userEmail,
         log: l.log,
         timestamp: l.timestamp,
       })),

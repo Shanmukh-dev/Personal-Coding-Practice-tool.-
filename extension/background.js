@@ -6,10 +6,19 @@ const APPLET_ID = 'b890841e-b34c-4b6c-a3b5-1066998148ae';
 // Initialize default state & badge on install/startup
 chrome.runtime.onInstalled.addListener(() => {
   initializeStorage();
+  chrome.alarms.create('omega_keepalive', { periodInMinutes: 1 });
 });
 
 chrome.runtime.onStartup.addListener(() => {
   updateBadgeState();
+  chrome.alarms.create('omega_keepalive', { periodInMinutes: 1 });
+});
+
+// Periodic alarm keepalive to ensure service worker responsiveness
+chrome.alarms.onAlarm.addListener((alarm) => {
+  if (alarm.name === 'omega_keepalive') {
+    updateBadgeState();
+  }
 });
 
 // Helper: Get today's local date key YYYY-MM-DD
@@ -150,19 +159,40 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         'omega_active_days',
       ],
       (res) => {
-        const mergedCounts = { ...(res.omega_daily_counts || {}), ...(stats.dailyCounts || {}) };
-        const mergedLogs = Array.isArray(stats.recentLogs) && stats.recentLogs.length > 0
-          ? stats.recentLogs
-          : (res.omega_logs || []);
+        const localCounts = res.omega_daily_counts || {};
+        const incomingCounts = stats.dailyCounts || {};
+        const mergedCounts = { ...localCounts };
+        Object.entries(incomingCounts).forEach(([dKey, val]) => {
+          if (typeof val === 'number') {
+            mergedCounts[dKey] = Math.max(mergedCounts[dKey] || 0, val);
+          }
+        });
+
+        // Merge logs unioning by ID
+        const localLogs = Array.isArray(res.omega_logs) ? res.omega_logs : [];
+        const incomingLogs = Array.isArray(stats.recentLogs) ? stats.recentLogs : [];
+        const logMap = new Map();
+        localLogs.forEach((l) => { if (l && l.id) logMap.set(l.id, l); });
+        incomingLogs.forEach((l) => { if (l && l.id) logMap.set(l.id, l); });
+        const mergedLogs = Array.from(logMap.values())
+          .sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0))
+          .slice(0, 30);
+
+        const todayKey = getTodayKey();
+        const todayCount = Math.max(
+          mergedCounts[todayKey] || 0,
+          typeof stats.todayCount === 'number' ? stats.todayCount : 0
+        );
+        mergedCounts[todayKey] = todayCount;
 
         chrome.storage.local.set(
           {
             omega_daily_counts: mergedCounts,
-            omega_streak: typeof stats.streak === 'number' ? stats.streak : (res.omega_streak || 0),
-            omega_daily_goal: typeof stats.dailyGoal === 'number' ? stats.dailyGoal : (res.omega_daily_goal || 3),
+            omega_streak: Math.max(res.omega_streak || 0, typeof stats.streak === 'number' ? stats.streak : 0, todayCount > 0 ? 1 : 0),
+            omega_daily_goal: typeof stats.dailyGoal === 'number' && stats.dailyGoal > 0 ? stats.dailyGoal : (res.omega_daily_goal || 3),
             omega_logs: mergedLogs,
-            omega_monthly_solved: typeof stats.monthlySolved === 'number' ? stats.monthlySolved : (res.omega_monthly_solved || 0),
-            omega_active_days: typeof stats.activeDays === 'number' ? stats.activeDays : (res.omega_active_days || 0),
+            omega_monthly_solved: Math.max(res.omega_monthly_solved || 0, typeof stats.monthlySolved === 'number' ? stats.monthlySolved : 0),
+            omega_active_days: Math.max(res.omega_active_days || 0, typeof stats.activeDays === 'number' ? stats.activeDays : 0),
           },
           () => {
             updateBadgeState();
@@ -200,9 +230,17 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         appUrl = (appUrl || DEFAULT_FALLBACK_URL).replace(/\/+$/, '');
 
         const todayKey = getTodayKey();
-        let dailyCounts = res.omega_daily_counts || {};
-        let todayCount = dailyCounts[todayKey] || 0;
-        let logs = res.omega_logs || [];
+        let dailyCounts = { ...(res.omega_daily_counts || {}) };
+        let logs = Array.isArray(res.omega_logs) ? res.omega_logs : [];
+        let todayLogsCount = logs.filter((l) => {
+          if (!l || !l.timestamp) return false;
+          const d = new Date(l.timestamp);
+          const lKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+          return lKey === todayKey;
+        }).length;
+        let todayCount = Math.max(dailyCounts[todayKey] || 0, todayLogsCount);
+        dailyCounts[todayKey] = todayCount;
+
         let streak = res.omega_streak || (todayCount > 0 ? 1 : 0);
         let dailyGoal = res.omega_daily_goal || 3;
         let monthlySolved = res.omega_monthly_solved || 0;
@@ -222,34 +260,39 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             if (statsResp.ok) {
               const cloudStats = await statsResp.json();
               if (cloudStats && cloudStats.success) {
-                // If cloud has daily counts, merge with local
-                if (cloudStats.dailyCounts && Object.keys(cloudStats.dailyCounts).length > 0) {
-                  dailyCounts = { ...dailyCounts, ...cloudStats.dailyCounts };
+                // If cloud has daily counts, merge using Math.max
+                if (cloudStats.dailyCounts && typeof cloudStats.dailyCounts === 'object') {
+                  Object.entries(cloudStats.dailyCounts).forEach(([dKey, val]) => {
+                    if (typeof val === 'number') {
+                      dailyCounts[dKey] = Math.max(dailyCounts[dKey] || 0, val);
+                    }
+                  });
                 }
                 
-                if (typeof cloudStats.todayCount === 'number' && (cloudStats.todayCount > 0 || todayCount === 0)) {
-                  todayCount = cloudStats.todayCount;
-                } else if (dailyCounts[todayKey]) {
-                  todayCount = Math.max(todayCount, dailyCounts[todayKey]);
-                }
+                const cloudToday = typeof cloudStats.todayCount === 'number' ? cloudStats.todayCount : 0;
+                todayCount = Math.max(todayCount, dailyCounts[todayKey] || 0, cloudToday, todayLogsCount);
+                dailyCounts[todayKey] = todayCount;
 
                 if (typeof cloudStats.streak === 'number' && cloudStats.streak > 0) {
-                  streak = cloudStats.streak;
+                  streak = Math.max(streak, cloudStats.streak);
                 }
                 if (typeof cloudStats.dailyGoal === 'number' && cloudStats.dailyGoal > 0) {
                   dailyGoal = cloudStats.dailyGoal;
                 }
                 if (typeof cloudStats.monthlySolved === 'number' && cloudStats.monthlySolved > 0) {
-                  monthlySolved = cloudStats.monthlySolved;
+                  monthlySolved = Math.max(monthlySolved, cloudStats.monthlySolved);
                 }
                 if (typeof cloudStats.activeDays === 'number' && cloudStats.activeDays > 0) {
-                  activeDays = cloudStats.activeDays;
+                  activeDays = Math.max(activeDays, cloudStats.activeDays);
                 }
 
                 if (Array.isArray(cloudStats.recentLogs) && cloudStats.recentLogs.length > 0) {
-                  const existingIds = new Set(logs.map((l) => l.id));
-                  const newFromCloud = cloudStats.recentLogs.filter((l) => !existingIds.has(l.id));
-                  logs = [...newFromCloud, ...logs].slice(0, 25);
+                  const logMap = new Map();
+                  logs.forEach((l) => { if (l && l.id) logMap.set(l.id, l); });
+                  cloudStats.recentLogs.forEach((l) => { if (l && l.id) logMap.set(l.id, l); });
+                  logs = Array.from(logMap.values())
+                    .sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0))
+                    .slice(0, 30);
                 }
 
                 // Cache fresh cloud data locally
@@ -454,6 +497,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     chrome.storage.local.get(
       ['omega_logs', 'omega_daily_counts', 'omega_app_url', 'omega_streak', 'omega_user'],
       async (res) => {
+        const user = res.omega_user || null;
+        if (user) {
+          if (user.uid) newLog.userId = user.uid;
+          if (user.email) newLog.userEmail = user.email;
+        }
+
         const logs = res.omega_logs || [];
         const dailyCounts = res.omega_daily_counts || {};
         const currentCount = dailyCounts[todayKey] || 0;
@@ -465,8 +514,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         if (currentCount === 0) {
           streak += 1;
         }
-
-        const user = res.omega_user || null;
 
         chrome.storage.local.set(
           {
@@ -560,6 +607,29 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       sendResponse({ success: true, url });
     });
     return true;
+  }
+
+  // 10. Persistent Handled Submissions Deduplication
+  if (message.type === 'MARK_SUBMISSION_HANDLED') {
+    const key = message.key;
+    if (key) {
+      chrome.storage.local.get(['omega_handled_submissions'], (res) => {
+        let list = res?.omega_handled_submissions || [];
+        if (!Array.isArray(list)) list = [];
+        const now = Date.now();
+        list = list.filter((item) => {
+          const ts = typeof item === 'object' && item?.ts ? item.ts : now;
+          return now - ts < 48 * 3600 * 1000;
+        });
+        const exists = list.some((item) => (typeof item === 'string' ? item === key : item.key === key));
+        if (!exists) {
+          list.unshift({ key, ts: now });
+          chrome.storage.local.set({ omega_handled_submissions: list.slice(0, 150) });
+        }
+        sendResponse({ success: true });
+      });
+      return true;
+    }
   }
 });
 

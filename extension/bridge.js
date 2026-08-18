@@ -107,28 +107,101 @@
       if (event.data.type === 'OMEGA_SET_STATS') {
         const stats = event.data.stats;
         if (stats && typeof stats === 'object' && isExtensionContextValid() && chrome.storage?.local) {
-          chrome.storage.local.set(
-            {
-              omega_daily_counts: stats.dailyCounts || {},
-              omega_streak: stats.streak || 0,
-              omega_today_count: stats.todayCount || 0,
-              omega_daily_goal: stats.dailyGoal || 3,
-              omega_logs: stats.recentLogs || [],
-              omega_monthly_solved: stats.monthlySolved || 0,
-              omega_active_days: stats.activeDays || 0,
-              omega_last_stats_sync: Date.now(),
-            },
-            () => {
+          chrome.storage.local.get(
+            [
+              'omega_daily_counts',
+              'omega_logs',
+              'omega_streak',
+              'omega_today_count',
+              'omega_monthly_solved',
+              'omega_active_days',
+            ],
+            (currentRes) => {
               if (chrome.runtime.lastError || !isExtensionContextValid()) return;
-              console.log('[Omega Extension Bridge] Stats synchronized from web app:', stats.todayCount, 'today, streak:', stats.streak);
-              try {
-                if (isExtensionContextValid()) {
-                  chrome.runtime.sendMessage({
-                    type: 'UPDATE_STATS_FROM_BRIDGE',
-                    stats: stats,
-                  });
+
+              const currentDailyCounts = currentRes?.omega_daily_counts || {};
+              const currentLogs = Array.isArray(currentRes?.omega_logs) ? currentRes.omega_logs : [];
+              const mergedDailyCounts = { ...currentDailyCounts };
+
+              if (stats.dailyCounts && typeof stats.dailyCounts === 'object') {
+                Object.entries(stats.dailyCounts).forEach(([k, v]) => {
+                  if (typeof v === 'number') {
+                    mergedDailyCounts[k] = Math.max(mergedDailyCounts[k] || 0, v);
+                  }
+                });
+              }
+
+              // Also count any logs stored in local logs list
+              currentLogs.forEach((l) => {
+                if (l && l.timestamp) {
+                  const d = new Date(l.timestamp);
+                  const lKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+                  mergedDailyCounts[lKey] = Math.max(mergedDailyCounts[lKey] || 0, 1);
                 }
-              } catch (e) {}
+              });
+
+              // Merge logs preserving existing extension logs
+              const incomingLogs = Array.isArray(stats.recentLogs) ? stats.recentLogs : [];
+              const logMap = new Map();
+              currentLogs.forEach((l) => { if (l && l.id) logMap.set(l.id, l); });
+              incomingLogs.forEach((l) => { if (l && l.id) logMap.set(l.id, l); });
+              const mergedLogs = Array.from(logMap.values())
+                .sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0))
+                .slice(0, 30);
+
+              const now = new Date();
+              const todayKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+              const todayLogsCount = currentLogs.filter((l) => {
+                if (!l || !l.timestamp) return false;
+                const d = new Date(l.timestamp);
+                const lKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+                return lKey === todayKey;
+              }).length;
+
+              const todayCount = Math.max(
+                currentRes?.omega_today_count || 0,
+                mergedDailyCounts[todayKey] || 0,
+                typeof stats.todayCount === 'number' ? stats.todayCount : 0,
+                todayLogsCount
+              );
+              mergedDailyCounts[todayKey] = todayCount;
+
+              const streak = Math.max(
+                currentRes?.omega_streak || 0,
+                typeof stats.streak === 'number' ? stats.streak : 0,
+                todayCount > 0 ? 1 : 0
+              );
+
+              const payload = {
+                omega_daily_counts: mergedDailyCounts,
+                omega_streak: streak,
+                omega_today_count: todayCount,
+                omega_daily_goal: stats.dailyGoal || 3,
+                omega_logs: mergedLogs,
+                omega_monthly_solved: Math.max(currentRes?.omega_monthly_solved || 0, stats.monthlySolved || 0),
+                omega_active_days: Math.max(currentRes?.omega_active_days || 0, stats.activeDays || 0),
+                omega_last_stats_sync: Date.now(),
+              };
+
+              chrome.storage.local.set(payload, () => {
+                if (chrome.runtime.lastError || !isExtensionContextValid()) return;
+                try {
+                  if (isExtensionContextValid()) {
+                    chrome.runtime.sendMessage({
+                      type: 'UPDATE_STATS_FROM_BRIDGE',
+                      stats: {
+                        todayCount,
+                        streak,
+                        dailyGoal: stats.dailyGoal || 3,
+                        dailyCounts: mergedDailyCounts,
+                        recentLogs: mergedLogs,
+                        monthlySolved: payload.omega_monthly_solved,
+                        activeDays: payload.omega_active_days,
+                      },
+                    });
+                  }
+                } catch (e) {}
+              });
             }
           );
         }
@@ -175,4 +248,28 @@
   }
 
   window.addEventListener('message', handleWindowMessage);
+
+  // 4. Listen for runtime broadcasts from background service worker and forward to web page
+  try {
+    if (isExtensionContextValid() && chrome.runtime && chrome.runtime.onMessage) {
+      chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+        if (!isExtensionContextValid() || !message || typeof message !== 'object') return;
+
+        if (message.type === 'OMEGA_EXTENSION_LOG_RECEIVED' && message.log) {
+          console.log('[Omega Extension Bridge] Forwarding extension log to dashboard window:', message.log.problemTitle || message.log.problemSlug);
+          window.postMessage(
+            {
+              type: 'OMEGA_EXTENSION_LOG_RECEIVED',
+              log: message.log,
+              user: message.user,
+            },
+            '*'
+          );
+          if (sendResponse) sendResponse({ success: true, forwarded: true });
+        }
+      });
+    }
+  } catch (err) {
+    console.warn('[Omega Extension Bridge] runtime listener notice:', err.message);
+  }
 })();

@@ -160,6 +160,29 @@ export default function App() {
     return () => unsubscribe();
   }, []);
 
+  // Stable refs for real-time background sync and event handlers
+  const currentUserRef = React.useRef(currentUser);
+  const catalogRef = React.useRef(catalog);
+  const dailyQueueRef = React.useRef(dailyQueue);
+  const revisionCardsRef = React.useRef(revisionCards);
+  const reflectionsRef = React.useRef(reflections);
+  const solvingRecordsRef = React.useRef(solvingRecords);
+  const gamificationRef = React.useRef(gamification);
+  const userProfileRef = React.useRef(userProfile);
+  const mistakesRef = React.useRef(mistakes);
+  const memoriesRef = React.useRef(memories);
+
+  useEffect(() => { currentUserRef.current = currentUser; }, [currentUser]);
+  useEffect(() => { catalogRef.current = catalog; }, [catalog]);
+  useEffect(() => { dailyQueueRef.current = dailyQueue; }, [dailyQueue]);
+  useEffect(() => { revisionCardsRef.current = revisionCards; }, [revisionCards]);
+  useEffect(() => { reflectionsRef.current = reflections; }, [reflections]);
+  useEffect(() => { solvingRecordsRef.current = solvingRecords; }, [solvingRecords]);
+  useEffect(() => { gamificationRef.current = gamification; }, [gamification]);
+  useEffect(() => { userProfileRef.current = userProfile; }, [userProfile]);
+  useEffect(() => { mistakesRef.current = mistakes; }, [mistakes]);
+  useEffect(() => { memoriesRef.current = memories; }, [memories]);
+
   // Broadcast auth state & user activity stats to Chrome Extension
   useEffect(() => {
     const broadcastToExtension = () => {
@@ -288,7 +311,7 @@ export default function App() {
     };
 
     broadcastToExtension();
-    const syncInterval = setInterval(broadcastToExtension, 10000);
+    const syncInterval = setInterval(broadcastToExtension, 8000);
 
     const handleExtensionMessages = (event: MessageEvent) => {
       if (!event.data || typeof event.data !== 'object') return;
@@ -309,14 +332,15 @@ export default function App() {
   // Track processed extension log IDs to prevent duplicate additions
   const processedLogIdsRef = React.useRef<Set<string>>(new Set());
 
-  // Ingest logs automatically captured from the Chrome Extension
+  // Ingest logs automatically captured from the Chrome Extension & write to database
   const ingestExtensionLog = async (rawLog: any) => {
     if (!rawLog) return;
     const logId = rawLog.id || `ext-${rawLog.timestamp || Date.now()}`;
     if (processedLogIdsRef.current.has(logId)) return;
     processedLogIdsRef.current.add(logId);
 
-    const uid = currentUser?.uid || 'guest';
+    const uid = currentUserRef.current?.uid || auth.currentUser?.uid || (rawLog.userId && rawLog.userId !== 'guest' ? rawLog.userId : 'guest');
+    const isAuthed = Boolean(auth.currentUser?.uid || (uid && uid !== 'guest'));
     const timestamp = rawLog.timestamp || Date.now();
     const title = rawLog.problemTitle || rawLog.problemSlug || 'Practice Problem';
     const slug = rawLog.problemSlug || title.toLowerCase().replace(/[^a-z0-9]+/g, '-');
@@ -325,11 +349,11 @@ export default function App() {
     const difficulty = rawLog.feltDifficulty || 'Medium';
 
     // 1. Match or register problem in catalog
-    let matchedProblem = catalog.find(
+    let matchedProblem = catalogRef.current.find(
       (p) =>
         p.platformProblemId?.toLowerCase() === slug.toLowerCase() ||
         p.title?.toLowerCase() === title.toLowerCase() ||
-        p.url?.toLowerCase() === url.toLowerCase()
+        (p.url && url && p.url.toLowerCase() === url.toLowerCase())
     );
 
     if (!matchedProblem) {
@@ -343,8 +367,14 @@ export default function App() {
         url: url,
         estimatedTimeMinutes: 20,
       };
-      await saveGlobalProblem(matchedProblem);
-      setCatalog((prev) => [...prev, matchedProblem!]);
+      if (isAuthed) {
+        await saveGlobalProblem(matchedProblem);
+      }
+      setCatalog((prev) => {
+        const next = [...prev, matchedProblem!];
+        catalogRef.current = next;
+        return next;
+      });
     }
 
     // 2. Build Reflection Record
@@ -361,14 +391,18 @@ export default function App() {
       notes:
         rawLog.notes ||
         (rawLog.improvementAnswers
-          ? `[Revision] Speed: ${rawLog.improvementAnswers.speedImprovement}, Avoided: ${rawLog.improvementAnswers.avoidedPreviousMistakes}`
+          ? `[Revision] Speed: ${rawLog.improvementAnswers.speedImprovement || 'Normal'}, Avoided Mistakes: ${rawLog.improvementAnswers.avoidedPreviousMistakes || 'Yes'}, Interview Readiness: ${rawLog.improvementAnswers.interviewReadiness || 'Ready'}`
           : ''),
     };
 
-    if (currentUser) {
+    if (isAuthed && uid !== 'guest') {
       await saveReflection(uid, newReflection);
     }
-    setReflections((prev) => [newReflection, ...prev.filter((r) => r.id !== refId)]);
+    setReflections((prev) => {
+      const next = [newReflection, ...prev.filter((r) => r.id !== refId)];
+      reflectionsRef.current = next;
+      return next;
+    });
 
     // 3. Build Solving Record
     const solvId = `solv-${logId}`;
@@ -382,13 +416,17 @@ export default function App() {
       isRevision: Boolean(rawLog.isRevision),
     };
 
-    if (currentUser) {
+    if (isAuthed && uid !== 'guest') {
       await saveSolvingRecord(uid, newSolving);
     }
-    setSolvingRecords((prev) => [newSolving, ...prev.filter((s) => s.id !== solvId)]);
+    setSolvingRecords((prev) => {
+      const next = [newSolving, ...prev.filter((s) => s.id !== solvId)];
+      solvingRecordsRef.current = next;
+      return next;
+    });
 
     // 4. Update Spaced Revision Card
-    const existingRev = revisionCards.find((c) => c.problemId === matchedProblem!.id) || null;
+    const existingRev = revisionCardsRef.current.find((c) => c.problemId === matchedProblem!.id) || null;
     let outcome: ReviewOutcome = 'Good';
     const conf = newReflection.confidence;
     if (conf >= 4 && !newReflection.requiredHintsOrEditorial) outcome = 'Easy';
@@ -397,27 +435,33 @@ export default function App() {
     else outcome = 'Forgot';
 
     const nextCard = calculateNextRevision(existingRev, matchedProblem.id, uid, outcome);
-    if (currentUser) {
+    if (isAuthed && uid !== 'guest') {
       await saveRevisionCard(uid, nextCard);
     }
-    setRevisionCards((prev) => [...prev.filter((c) => c.id !== nextCard.id), nextCard]);
+    setRevisionCards((prev) => {
+      const next = [...prev.filter((c) => c.id !== nextCard.id), nextCard];
+      revisionCardsRef.current = next;
+      return next;
+    });
 
     // 5. Update Daily Queue if item exists
-    const queueItems = dailyQueue.filter((i) => i.problemId === matchedProblem!.id);
+    const queueItems = dailyQueueRef.current.filter((i) => i.problemId === matchedProblem!.id);
     if (queueItems.length > 0) {
-      if (currentUser) {
+      if (isAuthed && uid !== 'guest') {
         for (const qItem of queueItems) {
           await updateDailyQueueItemStatus(uid, qItem.id, 'completed');
         }
       }
-      setDailyQueue((prev) =>
-        prev.map((i) => (i.problemId === matchedProblem!.id ? { ...i, status: 'completed' as const } : i))
-      );
+      setDailyQueue((prev) => {
+        const next = prev.map((i) => (i.problemId === matchedProblem!.id ? { ...i, status: 'completed' as const } : i));
+        dailyQueueRef.current = next;
+        return next;
+      });
     }
 
     // 6. Update Gamification Progress
     const { nextState: updatedGamification } = updateGamificationProgress(
-      gamification,
+      gamificationRef.current,
       uid,
       {
         action: rawLog.isRevision ? 'revision_completed' : 'problem_completed',
@@ -429,25 +473,28 @@ export default function App() {
       }
     );
     setGamification(updatedGamification);
-    if (currentUser) {
+    if (isAuthed && uid !== 'guest') {
       await setUserGamification(uid, updatedGamification);
     }
   };
 
-  // Poll server periodically for pending extension logs submitted from other tabs
+  // Poll server periodically for pending extension logs submitted from other tabs or background
   useEffect(() => {
-    let lastPollTime = Date.now() - 60000;
-    const pollInterval = setInterval(async () => {
+    const fetchPendingExtensionLogs = async () => {
       try {
-        const uidParam = currentUser?.uid ? `?userId=${encodeURIComponent(currentUser.uid)}&since=${lastPollTime}` : `?since=${lastPollTime}`;
-        const res = await fetch(`/api/extension/pending-logs${uidParam}`);
+        const uid = currentUserRef.current?.uid || auth.currentUser?.uid || 'guest';
+        const email = currentUserRef.current?.email || auth.currentUser?.email || '';
+        const query = new URLSearchParams();
+        if (uid && uid !== 'guest') query.set('userId', uid);
+        if (email) query.set('userEmail', email);
+
+        const res = await fetch(`/api/extension/pending-logs?${query.toString()}`);
         if (res.ok) {
           const data = await res.json();
-          if (data.serverTime) lastPollTime = data.serverTime - 5000;
           if (Array.isArray(data.logs) && data.logs.length > 0) {
             for (const item of data.logs) {
-              if (item.log) {
-                ingestExtensionLog(item.log);
+              if (item && item.log) {
+                await ingestExtensionLog(item.log);
               }
             }
           }
@@ -455,10 +502,27 @@ export default function App() {
       } catch (err) {
         // Silent poll error
       }
-    }, 6000);
+    };
 
-    return () => clearInterval(pollInterval);
-  }, [currentUser, catalog, dailyQueue, revisionCards, reflections, solvingRecords, gamification]);
+    // Initial fetch
+    fetchPendingExtensionLogs();
+
+    // 3-second interval
+    const pollInterval = setInterval(fetchPendingExtensionLogs, 3000);
+
+    // Fetch on tab focus / return
+    const handleFocus = () => {
+      fetchPendingExtensionLogs();
+    };
+    window.addEventListener('focus', handleFocus);
+    document.addEventListener('visibilitychange', handleFocus);
+
+    return () => {
+      clearInterval(pollInterval);
+      window.removeEventListener('focus', handleFocus);
+      document.removeEventListener('visibilitychange', handleFocus);
+    };
+  }, [currentUser]);
 
   const initGuestProfile = () => {
     const newGuest: UserProfile = {
@@ -569,6 +633,24 @@ export default function App() {
         await saveDailyQueueItem(uid, item);
       }
       setDailyQueue(generated);
+
+      // Synchronize any extension logs recorded while web app was offline or in another tab
+      try {
+        const pendingUrl = `/api/extension/pending-logs?userId=${encodeURIComponent(uid)}&userEmail=${encodeURIComponent(email || '')}&since=0`;
+        const pendingRes = await fetch(pendingUrl);
+        if (pendingRes.ok) {
+          const pendingData = await pendingRes.json();
+          if (Array.isArray(pendingData.logs) && pendingData.logs.length > 0) {
+            for (const item of pendingData.logs) {
+              if (item.log) {
+                await ingestExtensionLog(item.log);
+              }
+            }
+          }
+        }
+      } catch (syncErr) {
+        console.warn('Startup extension sync notice:', syncErr);
+      }
     } catch (err) {
       console.warn('Notice loading user data from Firestore:', err);
       // Ensure catalog is populated if database load encountered temporary error
