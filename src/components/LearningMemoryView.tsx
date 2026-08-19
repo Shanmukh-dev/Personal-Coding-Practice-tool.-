@@ -68,17 +68,22 @@ export const LearningMemoryView: React.FC<LearningMemoryViewProps> = ({ memories
 
     // Sort list
     list.sort((a, b) => {
+      const aLast = a.lastReviewedDate || (a as any).lastReviewedAt || (a as any).updatedAt || 0;
+      const bLast = b.lastReviewedDate || (b as any).lastReviewedAt || (b as any).updatedAt || 0;
+      const aFirst = a.firstSolvedDate || (a as any).firstSolvedAt || aLast || 0;
+      const bFirst = b.firstSolvedDate || (b as any).firstSolvedAt || bLast || 0;
+
       if (sortBy === 'lastReviewedDesc') {
-        return (b.lastReviewedDate || 0) - (a.lastReviewedDate || 0);
+        return bLast - aLast;
       }
       if (sortBy === 'lastReviewedAsc') {
-        return (a.lastReviewedDate || 0) - (b.lastReviewedDate || 0);
+        return aLast - bLast;
       }
       if (sortBy === 'firstSolvedDesc') {
-        return (b.firstSolvedDate || 0) - (a.firstSolvedDate || 0);
+        return bFirst - aFirst;
       }
       if (sortBy === 'firstSolvedAsc') {
-        return (a.firstSolvedDate || 0) - (b.firstSolvedDate || 0);
+        return aFirst - bFirst;
       }
       if (sortBy === 'reviewCountDesc') {
         return (b.reviewCount || 0) - (a.reviewCount || 0);
@@ -86,11 +91,11 @@ export const LearningMemoryView: React.FC<LearningMemoryViewProps> = ({ memories
       if (sortBy === 'confidenceDesc') {
         const avgConfidenceA =
           a.confidenceHistory && a.confidenceHistory.length > 0
-            ? a.confidenceHistory.reduce((acc, curr) => acc + curr.score, 0) / a.confidenceHistory.length
+            ? a.confidenceHistory.reduce((acc, curr) => acc + (curr.score ?? (curr as any).confidence ?? 0), 0) / a.confidenceHistory.length
             : 0;
         const avgConfidenceB =
           b.confidenceHistory && b.confidenceHistory.length > 0
-            ? b.confidenceHistory.reduce((acc, curr) => acc + curr.score, 0) / b.confidenceHistory.length
+            ? b.confidenceHistory.reduce((acc, curr) => acc + (curr.score ?? (curr as any).confidence ?? 0), 0) / b.confidenceHistory.length
             : 0;
         return avgConfidenceB - avgConfidenceA;
       }
@@ -268,7 +273,7 @@ export const LearningMemoryView: React.FC<LearningMemoryViewProps> = ({ memories
                     </div>
 
                     <h3 className="text-lg font-bold text-zinc-100">
-                      {problem?.title || mem.problemId}
+                      {problem?.title || (mem as any).problemTitle || mem.summary || mem.problemId}
                     </h3>
 
                     {problem?.dsaPatterns && problem.dsaPatterns.length > 0 && (
@@ -288,14 +293,47 @@ export const LearningMemoryView: React.FC<LearningMemoryViewProps> = ({ memories
                   <div className="flex flex-col sm:items-end gap-1 text-xs font-mono text-zinc-400 shrink-0">
                     <div className="flex items-center gap-1.5 text-blue-300 font-semibold">
                       <RotateCw className="w-3.5 h-3.5 text-blue-400" />
-                      <span>Last Review: {new Date(mem.lastReviewedDate).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}</span>
+                      <span>Last Review: {new Date(mem.lastReviewedDate || (mem as any).lastReviewedAt || (mem as any).updatedAt || Date.now()).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}</span>
                     </div>
                     <div className="flex items-center gap-1.5 text-zinc-500 text-[11px]">
                       <Calendar className="w-3.5 h-3.5 text-zinc-500" />
-                      <span>First Solved: {new Date(mem.firstSolvedDate).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}</span>
+                      <span>First Solved: {new Date(mem.firstSolvedDate || mem.lastReviewedDate || (mem as any).lastReviewedAt || Date.now()).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}</span>
                     </div>
                   </div>
                 </div>
+
+                {/* Key Insights if present */}
+                {mem.keyInsights && mem.keyInsights.length > 0 && (
+                  <div className="space-y-1.5 p-3 rounded-lg bg-zinc-950/60 border border-zinc-800">
+                    <span className="text-[11px] font-mono uppercase text-zinc-400 font-semibold flex items-center gap-1.5">
+                      <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+                      <span>Key Takeaways & Insights</span>
+                    </span>
+                    <ul className="list-disc list-inside space-y-1 text-xs text-zinc-300">
+                      {mem.keyInsights.map((insight, idx) => (
+                        <li key={idx} className="leading-relaxed">{insight}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+
+                {/* Mistakes history if present */}
+                {mem.mistakes && mem.mistakes.length > 0 && (
+                  <div className="space-y-1.5 p-3 rounded-lg bg-rose-950/20 border border-rose-900/30">
+                    <span className="text-[11px] font-mono uppercase text-rose-400 font-semibold flex items-center gap-1.5">
+                      <BookOpen className="w-3.5 h-3.5 text-rose-400" />
+                      <span>Recorded Mistakes ({mem.mistakes.length})</span>
+                    </span>
+                    <div className="space-y-1 text-xs text-rose-200">
+                      {mem.mistakes.map((m, idx) => (
+                        <div key={idx} className="flex items-start gap-2">
+                          <span className="font-semibold text-rose-300">[{m.mistakeType || (m as any).category}]:</span>
+                          <span>{m.description}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
 
                 {/* Reflections timeline */}
                 {mem.reflectionHistory && mem.reflectionHistory.length > 0 && (

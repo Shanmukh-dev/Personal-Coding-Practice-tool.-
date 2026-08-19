@@ -484,16 +484,20 @@ export default function App() {
         (rawLog.improvementAnswers
           ? `[Revision] Speed: ${rawLog.improvementAnswers.speedImprovement || 'Normal'}, Avoided Mistakes: ${rawLog.improvementAnswers.avoidedPreviousMistakes || 'Yes'}, Interview Readiness: ${rawLog.improvementAnswers.interviewReadiness || 'Ready'}`
           : ''),
+      improvementAnswers: rawLog.improvementAnswers,
+      aiAnalysis: typeof rawLog.aiAnalysis === 'object'
+        ? rawLog.aiAnalysis
+        : (typeof rawLog.aiAnalysis === 'string'
+          ? { summary: rawLog.aiAnalysis, identifiedMistakes: rawLog.requiredHintsOrEditorial ? ['Required Hints / Editorial Guidance'] : [], suggestedFocus: '' }
+          : undefined),
     };
 
     if (isAuthed && uid !== 'guest') {
       await saveReflection(uid, newReflection);
     }
-    setReflections((prev) => {
-      const next = [newReflection, ...prev.filter((r) => r.id !== refId)];
-      reflectionsRef.current = next;
-      return next;
-    });
+    const updatedReflections = [newReflection, ...reflectionsRef.current.filter((r) => r.id !== refId)];
+    setReflections(updatedReflections);
+    reflectionsRef.current = updatedReflections;
 
     // 3. Build Solving Record
     const solvId = `solv-${logId}`;
@@ -510,11 +514,9 @@ export default function App() {
     if (isAuthed && uid !== 'guest') {
       await saveSolvingRecord(uid, newSolving);
     }
-    setSolvingRecords((prev) => {
-      const next = [newSolving, ...prev.filter((s) => s.id !== solvId)];
-      solvingRecordsRef.current = next;
-      return next;
-    });
+    const updatedSolvings = [newSolving, ...solvingRecordsRef.current.filter((s) => s.id !== solvId)];
+    setSolvingRecords(updatedSolvings);
+    solvingRecordsRef.current = updatedSolvings;
 
     // 4. Update Spaced Revision Card
     const existingRev = revisionCardsRef.current.find((c) => c.problemId === matchedProblem!.id) || null;
@@ -529,13 +531,31 @@ export default function App() {
     if (isAuthed && uid !== 'guest') {
       await saveRevisionCard(uid, nextCard);
     }
-    setRevisionCards((prev) => {
-      const next = [...prev.filter((c) => c.id !== nextCard.id), nextCard];
-      revisionCardsRef.current = next;
-      return next;
-    });
+    const updatedRevisionCards = [...revisionCardsRef.current.filter((c) => c.id !== nextCard.id), nextCard];
+    setRevisionCards(updatedRevisionCards);
+    revisionCardsRef.current = updatedRevisionCards;
 
-    // 5. Update Daily Queue if item exists
+    // Schedule future revision card on calendar/dailyQueue
+    const targetRevDate = new Date(nextCard.nextReviewAt);
+    const yStr = targetRevDate.getFullYear();
+    const mStr = String(targetRevDate.getMonth() + 1).padStart(2, '0');
+    const dStr = String(targetRevDate.getDate()).padStart(2, '0');
+    const nextRevDateKey = `${yStr}-${mStr}-${dStr}`;
+
+    const futureQueueItem: DailyQueueItem = {
+      id: `dq-rev-${matchedProblem.id}-${nextRevDateKey}`,
+      userId: uid,
+      problemId: matchedProblem.id,
+      dateKey: nextRevDateKey,
+      status: 'pending',
+      isRevision: true,
+      addedAt: timestamp,
+    };
+    if (isAuthed && uid !== 'guest') {
+      await saveDailyQueueItem(uid, futureQueueItem);
+    }
+
+    // 5. Update Daily Queue if item exists today
     const queueItems = dailyQueueRef.current.filter((i) => i.problemId === matchedProblem!.id);
     if (queueItems.length > 0) {
       if (isAuthed && uid !== 'guest') {
@@ -543,14 +563,97 @@ export default function App() {
           await updateDailyQueueItemStatus(uid, qItem.id, 'completed');
         }
       }
-      setDailyQueue((prev) => {
-        const next = prev.map((i) => (i.problemId === matchedProblem!.id ? { ...i, status: 'completed' as const } : i));
-        dailyQueueRef.current = next;
-        return next;
-      });
+    }
+    const updatedDailyQueue = [
+      ...dailyQueueRef.current
+        .filter((i) => !(i.problemId === matchedProblem!.id && i.dateKey === nextRevDateKey))
+        .map((i) => (i.problemId === matchedProblem!.id ? { ...i, status: 'completed' as const } : i)),
+      futureQueueItem,
+    ];
+    setDailyQueue(updatedDailyQueue);
+    dailyQueueRef.current = updatedDailyQueue;
+
+    // 6. Update Knowledge Memory (Permanent Learning Memory)
+    const existingMem = memoriesRef.current.find((m) => m.problemId === matchedProblem!.id);
+    const prevConfHistory = existingMem?.confidenceHistory || [];
+    const prevReflHistory = existingMem?.reflectionHistory || [];
+    const prevInsights = existingMem?.keyInsights || [];
+
+    const newMem: LearningMemory = {
+      problemId: matchedProblem.id,
+      userId: uid,
+      firstSolvedDate: existingMem?.firstSolvedDate || timestamp,
+      lastReviewedDate: timestamp,
+      reviewCount: (existingMem?.reviewCount || 0) + 1,
+      confidenceHistory: [
+        ...prevConfHistory,
+        { timestamp: timestamp, score: newReflection.confidence },
+      ],
+      reflectionHistory: [
+        newReflection,
+        ...prevReflHistory.filter((r) => r.id !== refId),
+      ],
+      mistakes: existingMem?.mistakes || [],
+      keyInsights: newReflection.notes && !prevInsights.includes(newReflection.notes)
+        ? [...prevInsights, newReflection.notes]
+        : prevInsights,
+    };
+
+    if (isAuthed && uid !== 'guest') {
+      await saveLearningMemory(uid, newMem);
+    }
+    const updatedMemories = [
+      ...memoriesRef.current.filter((m) => m.problemId !== matchedProblem!.id),
+      newMem,
+    ];
+    setMemories(updatedMemories);
+    memoriesRef.current = updatedMemories;
+
+    // 7. Update Mistake Journal if hints or low confidence occurred
+    let updatedMistakes = mistakesRef.current;
+    if (newReflection.requiredHintsOrEditorial || newReflection.confidence <= 2) {
+      const mistakeId = `mist-${logId}`;
+      const newMistake: MistakeEntry = {
+        id: mistakeId,
+        userId: uid,
+        patternId: matchedProblem.dsaPatterns?.[0] || 'General',
+        problemId: matchedProblem.id,
+        mistakeType: newReflection.requiredHintsOrEditorial
+          ? 'Misunderstood Concept'
+          : 'Implementation Bug',
+        description: newReflection.notes || 'Needed hints / editorial assistance during solution.',
+        timestamp: timestamp,
+      };
+      if (isAuthed && uid !== 'guest') {
+        await saveMistake(uid, newMistake);
+      }
+      updatedMistakes = [newMistake, ...mistakesRef.current.filter((m) => m.id !== mistakeId)];
+      setMistakes(updatedMistakes);
+      mistakesRef.current = updatedMistakes;
+
+      // Also append to the memory mistakes list
+      newMem.mistakes = [newMistake, ...(newMem.mistakes || []).filter((m) => m.id !== mistakeId)];
+      if (isAuthed && uid !== 'guest') {
+        await saveLearningMemory(uid, newMem);
+      }
     }
 
-    // 6. Update Gamification Progress
+    // 8. Recompute Pattern Taxonomy across all updated collections
+    const updatedTaxonomy = computePatternTaxonomy({
+      solvingRecords: updatedSolvings,
+      reflections: updatedReflections,
+      memories: updatedMemories,
+      mistakes: updatedMistakes,
+      catalog: catalogRef.current,
+    });
+    setPatternMasteries(updatedTaxonomy);
+    if (isAuthed && uid !== 'guest') {
+      for (const m of updatedTaxonomy) {
+        await savePatternMastery(uid, m);
+      }
+    }
+
+    // 9. Update Gamification Progress
     const { nextState: updatedGamification } = updateGamificationProgress(
       gamificationRef.current,
       uid,
@@ -564,6 +667,7 @@ export default function App() {
       }
     );
     setGamification(updatedGamification);
+    gamificationRef.current = updatedGamification;
     if (isAuthed && uid !== 'guest') {
       await setUserGamification(uid, updatedGamification);
     }

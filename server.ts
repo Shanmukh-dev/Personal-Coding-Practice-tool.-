@@ -754,8 +754,13 @@ Provide a concise 2-sentence feedback: 1 sentence diagnosing the key algorithmic
     }
 
     // 3. User Reflection Object
+    const reflectionObjAi = typeof aiAnalysis === 'string'
+      ? { summary: aiAnalysis, identifiedMistakes: requiredHints ? ['Required Hints / Editorial Guidance'] : [], suggestedFocus: confidence <= 2 ? 'Edge cases & constraints' : 'Spaced repetition' }
+      : (aiAnalysis || { summary: `Practiced ${problemTitle} with ${confidence}/5 confidence.`, identifiedMistakes: [], suggestedFocus: 'Spaced review' });
+
     const reflectionDoc = {
       id: refId,
+      userId: uid,
       problemId: problemId,
       problemTitle: problemTitle,
       problemSlug: problemSlug,
@@ -769,19 +774,20 @@ Provide a concise 2-sentence feedback: 1 sentence diagnosing the key algorithmic
       notes: notes,
       isRevision: isRevision,
       improvementAnswers: improvementAnswers || null,
-      aiAnalysis: aiAnalysis,
+      aiAnalysis: reflectionObjAi,
       source: 'chrome-extension',
       createdAt: now,
       timestamp: now,
     };
     try {
       const userReflRef = doc(firestoreDb, 'users', uid, 'reflections', refId);
-      await setDoc(userReflRef, reflectionDoc);
+      await setDoc(userReflRef, reflectionDoc, { merge: true });
     } catch (rErr) {}
 
     // 4. User Solving Record
     const solvingDoc = {
       id: solvId,
+      userId: uid,
       problemId: problemId,
       problemTitle: problemTitle,
       platform: platform,
@@ -790,10 +796,12 @@ Provide a concise 2-sentence feedback: 1 sentence diagnosing the key algorithmic
       solvedAt: now,
       completedAt: now,
       source: 'chrome-extension',
+      reflectionId: refId,
+      isRevision: isRevision,
     };
     try {
       const userSolvRef = doc(firestoreDb, 'users', uid, 'solvings', solvId);
-      await setDoc(userSolvRef, solvingDoc);
+      await setDoc(userSolvRef, solvingDoc, { merge: true });
     } catch (sErr) {}
 
     // 5. Fetch & Update Spaced Repetition Revision Card
@@ -828,7 +836,7 @@ Provide a concise 2-sentence feedback: 1 sentence diagnosing the key algorithmic
       const queueSnap = await getDocs(query(queueColl, where('problemId', '==', problemId)));
       for (const qDoc of queueSnap.docs) {
         const qData = qDoc.data();
-        if (qData.date === todayDateKey || qData.status === 'pending') {
+        if (qData.date === todayDateKey || qData.dateKey === todayDateKey || qData.status === 'pending') {
           await updateDoc(qDoc.ref, { status: 'completed', completedAt: now });
         }
       }
@@ -844,6 +852,7 @@ Provide a concise 2-sentence feedback: 1 sentence diagnosing the key algorithmic
           problemId: problemId,
           problemTitle: problemTitle,
           date: nextRevDateKey,
+          dateKey: nextRevDateKey,
           status: 'pending',
           isRevision: true,
           assignedReason: `Spaced Repetition Review (Interval: ${nextRevisionCard.intervalDays}d)`,
@@ -855,28 +864,74 @@ Provide a concise 2-sentence feedback: 1 sentence diagnosing the key algorithmic
       );
     } catch (qErr) {}
 
-    // 7. Update Problem Learning Memory
+    // 7. Update Problem Learning Memory (Permanent Knowledge Memory Vault)
+    let loggedMistakeEntry: any = null;
+    if (requiredHints || confidence <= 2) {
+      const mistakeId = `mist-${now}-${Math.random().toString(36).substring(2, 6)}`;
+      loggedMistakeEntry = {
+        id: mistakeId,
+        userId: uid,
+        patternId: 'General',
+        problemId: problemId,
+        problemTitle: problemTitle,
+        mistakeType: requiredHints ? 'Misunderstood Concept' : 'Implementation Bug',
+        category: requiredHints ? 'Required Hint / Editorial' : 'Low Intuition / Edge Case Shaky',
+        description: notes || 'Needed hints / struggled during solution execution.',
+        timestamp: now,
+        occurredAt: now,
+      };
+      try {
+        const mistakeRef = doc(firestoreDb, 'users', uid, 'mistakes', mistakeId);
+        await setDoc(mistakeRef, loggedMistakeEntry, { merge: true });
+      } catch (mistErr) {}
+    }
+
     try {
       const memoryRef = doc(firestoreDb, 'users', uid, 'memories', problemId);
       const memSnap = await getDoc(memoryRef);
-      const prevMem = memSnap.exists() ? memSnap.data() : null;
-      const history = Array.isArray(prevMem?.confidenceHistory) ? prevMem.confidenceHistory : [];
-      history.push({ confidence, timestamp: now, isRevision });
+      const prevMem = memSnap.exists() ? (memSnap.data() as any) : null;
+      
+      const prevConfHistory = Array.isArray(prevMem?.confidenceHistory) ? prevMem.confidenceHistory : [];
+      const updatedConfHistory = [
+        ...prevConfHistory,
+        { timestamp: now, score: confidence },
+      ];
 
-      await setDoc(
-        memoryRef,
-        {
-          problemId: problemId,
-          problemTitle: problemTitle,
-          summary: notes || prevMem?.summary || `Mastered on ${new Date(now).toLocaleDateString()}`,
-          lastReviewedAt: now,
-          reviewCount: (prevMem?.reviewCount || 0) + 1,
-          confidenceHistory: history.slice(-10),
-          updatedAt: now,
-        },
-        { merge: true }
-      );
-    } catch (mErr) {}
+      const prevReflectionHistory = Array.isArray(prevMem?.reflectionHistory) ? prevMem.reflectionHistory : [];
+      const updatedReflectionHistory = [
+        reflectionDoc,
+        ...prevReflectionHistory.filter((r: any) => r.id !== refId),
+      ];
+
+      const prevInsights = Array.isArray(prevMem?.keyInsights) ? prevMem.keyInsights : [];
+      const updatedKeyInsights = notes && !prevInsights.includes(notes)
+        ? [...prevInsights, notes]
+        : prevInsights;
+
+      const prevMistakes = Array.isArray(prevMem?.mistakes) ? prevMem.mistakes : [];
+      const updatedMistakes = loggedMistakeEntry
+        ? [loggedMistakeEntry, ...prevMistakes.filter((m: any) => m.id !== loggedMistakeEntry.id)]
+        : prevMistakes;
+
+      const updatedLearningMemory = {
+        problemId: problemId,
+        userId: uid,
+        problemTitle: problemTitle,
+        firstSolvedDate: prevMem?.firstSolvedDate || now,
+        lastReviewedDate: now,
+        reviewCount: (prevMem?.reviewCount || 0) + 1,
+        confidenceHistory: updatedConfHistory,
+        reflectionHistory: updatedReflectionHistory,
+        mistakes: updatedMistakes,
+        keyInsights: updatedKeyInsights,
+        summary: notes || prevMem?.summary || `Mastered on ${new Date(now).toLocaleDateString()}`,
+        updatedAt: now,
+      };
+
+      await setDoc(memoryRef, updatedLearningMemory, { merge: true });
+    } catch (mErr) {
+      console.error('[Omega Server] Memory save error:', mErr);
+    }
 
     // 8. Update Gamification Status
     const xpGained = isRevision ? 15 : 30;
@@ -910,23 +965,7 @@ Provide a concise 2-sentence feedback: 1 sentence diagnosing the key algorithmic
       await setDoc(gamificationRef, updatedGamification, { merge: true });
     } catch (gErr) {}
 
-    // 9. If required hints or difficulty was high, log to Mistake Journal
-    if (requiredHints || confidence <= 2) {
-      try {
-        const mistakeId = `mist-${now}-${Math.random().toString(36).substring(2, 6)}`;
-        const mistakeRef = doc(firestoreDb, 'users', uid, 'mistakes', mistakeId);
-        await setDoc(mistakeRef, {
-          id: mistakeId,
-          problemId: problemId,
-          problemTitle: problemTitle,
-          category: requiredHints ? 'Required Hint / Editorial' : 'Low Intuition / Edge Case Shaky',
-          description: notes || 'Needed guidance during solution or had difficulty identifying optimal pattern.',
-          occurredAt: now,
-        });
-      } catch (mistErr) {}
-    }
-
-    // 10. Update server-side memory caches and broadcast history
+    // 9. Update server-side memory caches and broadcast history
     const userKey = uid;
     const userStat = userStatsCacheMap.get(userKey) || {
       userId: uid,
