@@ -12,7 +12,9 @@ document.addEventListener('DOMContentLoaded', () => {
   const serverConfigDrawer = document.getElementById('serverConfigDrawer');
   const serverUrlInput = document.getElementById('serverUrlInput');
   const saveServerUrlBtn = document.getElementById('saveServerUrlBtn');
+  const resetDefaultUrlBtn = document.getElementById('resetDefaultUrlBtn');
   const autoDetectTabUrlBtn = document.getElementById('autoDetectTabUrlBtn');
+  const serverDrawerAlert = document.getElementById('serverDrawerAlert');
 
   // Auth Elements
   const btnGoogleAuth = document.getElementById('btnGoogleAuth');
@@ -36,6 +38,12 @@ document.addEventListener('DOMContentLoaded', () => {
   const userEmail = document.getElementById('userEmail');
   const logoutBtn = document.getElementById('logoutBtn');
   const refreshStatsBtn = document.getElementById('refreshStatsBtn');
+  const syncStatusPill = document.getElementById('syncStatusPill');
+  const syncStatusDot = document.getElementById('syncStatusDot');
+  const syncStatusText = document.getElementById('syncStatusText');
+  const syncMetaRow = document.getElementById('syncMetaRow');
+  const lastSyncTimeLabel = document.getElementById('lastSyncTimeLabel');
+  const syncModeTag = document.getElementById('syncModeTag');
   const toggleInput = document.getElementById('trackingToggle');
   const toggleLabel = document.getElementById('toggleStatusLabel');
   const todayDateStr = document.getElementById('todayDateStr');
@@ -51,21 +59,39 @@ document.addEventListener('DOMContentLoaded', () => {
 
   const openAppBtn = document.getElementById('openAppBtn');
 
-  const CLOUD_APP_URL = 'https://ais-dev-xe62wcz6ciunnsbrgansz7-15217695281.asia-east1.run.app';
+  const CLOUD_APP_URL = 'https://omega-dsa.ai.studio';
   let currentAppUrl = CLOUD_APP_URL;
   let isSignUpMode = false;
 
   // Helper to normalize and convert AI Studio URL if needed
   function normalizeAppUrl(rawUrl) {
-    if (!rawUrl) return CLOUD_APP_URL;
+    if (!rawUrl || typeof rawUrl !== 'string') return CLOUD_APP_URL;
     let url = rawUrl.trim();
-    if (url.includes('aistudio.google.com/apps')) {
+    if (
+      url.includes('aistudio.google.com') ||
+      url === 'https://ai.studio' ||
+      url === 'http://ai.studio' ||
+      url === 'https://ai.studio/' ||
+      url.includes('google.com') ||
+      url === ''
+    ) {
       return CLOUD_APP_URL;
     }
     if (!/^https?:\/\//i.test(url)) {
       url = 'https://' + url;
     }
     return url.replace(/\/+$/, '');
+  }
+
+  function showDrawerAlert(msg, type = 'success') {
+    if (serverDrawerAlert) {
+      serverDrawerAlert.textContent = msg;
+      serverDrawerAlert.className = `auth-alert ${type}`;
+      serverDrawerAlert.style.display = 'block';
+      setTimeout(() => {
+        if (serverDrawerAlert) serverDrawerAlert.style.display = 'none';
+      }, 4000);
+    }
   }
 
   // Format today's date readable
@@ -90,17 +116,28 @@ document.addEventListener('DOMContentLoaded', () => {
   if (saveServerUrlBtn && serverUrlInput) {
     saveServerUrlBtn.addEventListener('click', () => {
       let rawUrl = (serverUrlInput.value || '').trim();
-      if (!rawUrl) {
-        showAuthAlert('Please enter a valid Omega App URL', 'error');
-        return;
-      }
       const newUrl = normalizeAppUrl(rawUrl);
       currentAppUrl = newUrl;
       serverUrlInput.value = newUrl;
 
       chrome.runtime.sendMessage({ type: 'SET_APP_URL', url: newUrl }, (res) => {
-        showAuthAlert('Server URL updated! Checking connection...', 'success');
+        showDrawerAlert(`Saved: ${newUrl}`, 'success');
+        showAuthAlert(`Server URL updated to ${newUrl}`, 'success');
         testServerConnectivity(newUrl);
+        setTimeout(hideAuthAlert, 3000);
+      });
+    });
+  }
+
+  // 2b. Reset to Default Server URL
+  if (resetDefaultUrlBtn && serverUrlInput) {
+    resetDefaultUrlBtn.addEventListener('click', () => {
+      currentAppUrl = CLOUD_APP_URL;
+      serverUrlInput.value = CLOUD_APP_URL;
+      chrome.runtime.sendMessage({ type: 'SET_APP_URL', url: CLOUD_APP_URL }, () => {
+        showDrawerAlert(`Reset to default: ${CLOUD_APP_URL}`, 'success');
+        showAuthAlert(`Server URL reset to ${CLOUD_APP_URL}`, 'success');
+        testServerConnectivity(CLOUD_APP_URL);
         setTimeout(hideAuthAlert, 3000);
       });
     });
@@ -114,34 +151,36 @@ document.addEventListener('DOMContentLoaded', () => {
         let foundUrl = null;
         for (const tab of tabs) {
           if (tab.url) {
-            if (tab.url.includes('.run.app') || tab.url.includes('localhost:3000') || tab.url.includes('127.0.0.1:3000')) {
+            if (tab.url.includes('localhost:3000') || tab.url.includes('127.0.0.1:3000')) {
+              foundUrl = 'http://localhost:3000';
+              break;
+            } else if (tab.url.includes('.run.app')) {
               foundUrl = new URL(tab.url).origin;
               break;
-            } else if (tab.url.includes('aistudio.google.com/apps')) {
+            } else if (tab.url.includes('omega-dsa.ai.studio')) {
               foundUrl = CLOUD_APP_URL;
               break;
             }
           }
         }
 
-        if (foundUrl) {
-          currentAppUrl = foundUrl;
-          if (serverUrlInput) serverUrlInput.value = foundUrl;
-          chrome.runtime.sendMessage({ type: 'SET_APP_URL', url: foundUrl }, () => {
-            showAuthAlert(`Connected to Omega Cloud: ${foundUrl}`, 'success');
-            testServerConnectivity(foundUrl);
-          });
-        } else {
-          showAuthAlert('No open Omega tabs found. Open your Omega web app in Chrome first.', 'error');
-        }
+        const targetUrl = foundUrl || CLOUD_APP_URL;
+        currentAppUrl = targetUrl;
+        if (serverUrlInput) serverUrlInput.value = targetUrl;
+        chrome.runtime.sendMessage({ type: 'SET_APP_URL', url: targetUrl }, () => {
+          showDrawerAlert(`Set to: ${targetUrl}`, 'success');
+          showAuthAlert(`Connected to Omega: ${targetUrl}`, 'success');
+          testServerConnectivity(targetUrl);
+        });
       } catch (err) {
-        showAuthAlert('Could not auto-detect tab URL: ' + err.message, 'error');
+        showDrawerAlert('Auto-detect error: ' + err.message, 'error');
       }
     });
   }
 
   // 4. Test Server Connectivity
   function testServerConnectivity(urlToTest) {
+    const checkUrl = normalizeAppUrl(urlToTest || currentAppUrl);
     if (statusDot) {
       statusDot.className = 'status-dot';
     }
@@ -149,13 +188,17 @@ document.addEventListener('DOMContentLoaded', () => {
       serverStatusText.textContent = 'Connecting...';
     }
 
-    chrome.runtime.sendMessage({ type: 'PING_SERVER', url: urlToTest || currentAppUrl }, (res) => {
+    chrome.runtime.sendMessage({ type: 'PING_SERVER', url: checkUrl }, (res) => {
       if (res && res.success) {
         if (statusDot) statusDot.className = 'status-dot online';
         if (serverStatusText) {
-          const display = urlToTest ? new URL(urlToTest).hostname : 'Connected';
-          serverStatusText.textContent = `Online: ${display}`;
-          serverStatusText.title = `Connected to ${urlToTest || currentAppUrl}`;
+          try {
+            const host = new URL(checkUrl).hostname;
+            serverStatusText.textContent = `Online: ${host}`;
+          } catch (e) {
+            serverStatusText.textContent = 'Online';
+          }
+          serverStatusText.title = `Connected to ${checkUrl}`;
         }
       } else {
         if (statusDot) statusDot.className = 'status-dot offline';
@@ -378,7 +421,7 @@ document.addEventListener('DOMContentLoaded', () => {
         return;
       }
 
-      currentAppUrl = res.appUrl || 'http://localhost:3000';
+      currentAppUrl = normalizeAppUrl(res.appUrl || CLOUD_APP_URL);
       if (serverUrlInput) serverUrlInput.value = currentAppUrl;
       testServerConnectivity(currentAppUrl);
 
@@ -416,10 +459,56 @@ document.addEventListener('DOMContentLoaded', () => {
         const streak = res.streak || (count > 0 ? 1 : 0);
         if (streakCount) streakCount.textContent = `${streak}d streak`;
 
+        // Update Sync Status UI in Popup
+        updateSyncStatusUI(res.lastSyncTime, res.isCloudSynced !== false);
+
         // Render Current Month Heatmap
         renderCurrentMonthHeatmap(res.dailyCounts || {});
       }
     });
+  }
+
+  // Format and update sync status pill and timestamp metadata
+  function updateSyncStatusUI(lastSyncTime, isConnected) {
+    if (!syncStatusPill || !syncStatusText || !syncStatusDot) return;
+
+    if (!lastSyncTime) {
+      syncStatusText.textContent = 'Sync Ready';
+      syncStatusPill.className = 'cloud-pill';
+      syncStatusDot.className = 'cloud-dot';
+      if (lastSyncTimeLabel) lastSyncTimeLabel.textContent = 'Pending sync';
+      if (syncModeTag) syncModeTag.textContent = 'Cloud Standby';
+      return;
+    }
+
+    const diffSec = Math.floor((Date.now() - lastSyncTime) / 1000);
+    let timeStr = 'Just now';
+    if (diffSec >= 5 && diffSec < 60) {
+      timeStr = `${diffSec}s ago`;
+    } else if (diffSec >= 60 && diffSec < 3600) {
+      const m = Math.floor(diffSec / 60);
+      timeStr = `${m}m ago`;
+    } else if (diffSec >= 3600) {
+      const h = Math.floor(diffSec / 3600);
+      timeStr = `${h}h ago`;
+    }
+
+    if (lastSyncTimeLabel) {
+      lastSyncTimeLabel.textContent = timeStr;
+      lastSyncTimeLabel.title = new Date(lastSyncTime).toLocaleTimeString();
+    }
+
+    if (isConnected) {
+      syncStatusText.textContent = 'Synced';
+      syncStatusPill.className = 'cloud-pill';
+      syncStatusDot.className = 'cloud-dot';
+      if (syncModeTag) syncModeTag.textContent = 'Live Connected';
+    } else {
+      syncStatusText.textContent = 'Cached';
+      syncStatusPill.className = 'cloud-pill offline';
+      syncStatusDot.className = 'cloud-dot offline';
+      if (syncModeTag) syncModeTag.textContent = 'Local Cache';
+    }
   }
 
   // Switch between unauthenticated & authenticated views

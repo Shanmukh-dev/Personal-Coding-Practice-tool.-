@@ -9,8 +9,12 @@ import {
   onAuthStateChanged,
   User as FirebaseUser,
 } from 'firebase/auth';
-import { getFirestore, initializeFirestore } from 'firebase/firestore';
+import { getFirestore, initializeFirestore, setLogLevel } from 'firebase/firestore';
 import firebaseConfigJson from '../../firebase-applet-config.json';
+
+try {
+  setLogLevel('silent');
+} catch (e) {}
 
 const firebaseConfig = {
   apiKey: firebaseConfigJson.apiKey,

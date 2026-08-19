@@ -27,6 +27,7 @@ import { PracticeTopicSelector } from './PracticeTopicSelector';
 import { getProfileAvatarUrl } from '../utils/avatar';
 import { ActivityHeatmap } from './ActivityHeatmap';
 import { getLocalDateKey, getOffsetLocalDateKey } from '../utils/dateUtils';
+import { SyncStatusWidget } from './SyncStatusWidget';
 
 interface DashboardProps {
   userProfile: UserProfile | null;
@@ -37,6 +38,11 @@ interface DashboardProps {
   gamification: UserGamification | null;
   solvingRecords?: SolvingRecord[];
   reflections?: Reflection[];
+  lastSyncTime?: number | null;
+  isSyncing?: boolean;
+  isExtensionDetected?: boolean;
+  onManualSync?: () => void;
+  onOpenPairModal?: () => void;
   onNavigateTab: (tab: string) => void;
   onSolveProblem: (problem: Problem) => void;
   onOpenOnboarding: () => void;
@@ -55,6 +61,11 @@ export const Dashboard: React.FC<DashboardProps> = ({
   gamification,
   solvingRecords = [],
   reflections = [],
+  lastSyncTime = null,
+  isSyncing = false,
+  isExtensionDetected = false,
+  onManualSync = () => {},
+  onOpenPairModal = () => {},
   onNavigateTab,
   onSolveProblem,
   onOpenOnboarding,
@@ -261,6 +272,16 @@ export const Dashboard: React.FC<DashboardProps> = ({
           </div>
         </div>
       </div>
+
+      {/* Extension & Cloud Synchronization Status Banner */}
+      <SyncStatusWidget
+        lastSyncTime={lastSyncTime}
+        isSyncing={isSyncing}
+        isExtensionDetected={isExtensionDetected}
+        onManualSync={onManualSync}
+        onOpenPairModal={onOpenPairModal}
+        currentUser={userProfile}
+      />
 
       {/* Practice Activity Heatmap (LeetCode Style) */}
       <ActivityHeatmap

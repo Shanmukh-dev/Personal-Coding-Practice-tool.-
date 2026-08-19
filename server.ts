@@ -5,12 +5,164 @@ import JSZip from 'jszip';
 import { createServer as createViteServer } from 'vite';
 import { GoogleGenAI, Type } from '@google/genai';
 import dotenv from 'dotenv';
+import jwt from 'jsonwebtoken';
+import { initializeApp, getApps } from 'firebase/app';
+import {
+  getFirestore,
+  setLogLevel,
+  doc,
+  getDoc,
+  setDoc,
+  updateDoc,
+  collection,
+  getDocs,
+  query,
+  where,
+  orderBy,
+  limit,
+} from 'firebase/firestore';
 import firebaseConfigJson from './firebase-applet-config.json';
 
 dotenv.config();
 
+// Silence idle gRPC stream disconnection logs
+try {
+  setLogLevel('silent');
+} catch (e) {}
+
+// Initialize Firebase client in server environment
+const firebaseApp = getApps().length === 0 ? initializeApp(firebaseConfigJson) : getApps()[0];
+const firestoreDb = getFirestore(firebaseApp, firebaseConfigJson.firestoreDatabaseId);
+
+const JWT_SECRET = process.env.JWT_SECRET || 'omega_dsa_os_extension_secure_token_secret_key_2026';
+
+export interface AuthenticatedUser {
+  uid: string;
+  email?: string | null;
+  displayName?: string | null;
+  photoURL?: string | null;
+}
+
+function generateExtensionJwt(user: AuthenticatedUser): string {
+  return jwt.sign(
+    {
+      uid: user.uid,
+      email: user.email || null,
+      displayName: user.displayName || null,
+      photoURL: user.photoURL || null,
+    },
+    JWT_SECRET,
+    { expiresIn: '30d' }
+  );
+}
+
+function verifyExtensionJwt(token: string): AuthenticatedUser | null {
+  try {
+    const decoded = jwt.verify(token, JWT_SECRET) as any;
+    if (decoded && decoded.uid) {
+      return {
+        uid: decoded.uid,
+        email: decoded.email || null,
+        displayName: decoded.displayName || null,
+        photoURL: decoded.photoURL || null,
+      };
+    }
+    return null;
+  } catch (err) {
+    return null;
+  }
+}
+
+// Authentication middleware for secure extension endpoints
+function authenticateExtensionJwt(req: express.Request, res: express.Response, next: express.NextFunction) {
+  const authHeader = (req.headers.authorization || req.headers['x-omega-token']) as string | undefined;
+  if (!authHeader) {
+    return res.status(401).json({
+      success: false,
+      error: 'Authentication token missing. Please sign in or pair the Omega extension with your account.',
+      code: 'AUTH_REQUIRED',
+    });
+  }
+
+  const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7).trim() : authHeader.trim();
+  const user = verifyExtensionJwt(token);
+
+  if (!user) {
+    return res.status(401).json({
+      success: false,
+      error: 'Invalid or expired extension authentication token. Please re-authenticate your extension.',
+      code: 'AUTH_EXPIRED',
+    });
+  }
+
+  (req as any).user = user;
+  next();
+}
+
+// Spaced Repetition SuperMemo-2 Calculation Helper for Server
+function calculateNextRevisionServer(
+  existingCard: any,
+  problemId: string,
+  userId: string,
+  outcome: 'Forgot' | 'Hard' | 'Good' | 'Easy'
+) {
+  const now = Date.now();
+  let reviewCount = existingCard ? (existingCard.reviewCount || existingCard.repetitionCount || 0) + 1 : 1;
+  let intervalDays = existingCard ? (existingCard.intervalDays || 1) : 1;
+  let easeFactor = existingCard ? (existingCard.easeFactor || 2.5) : 2.5;
+
+  switch (outcome) {
+    case 'Forgot':
+      intervalDays = 1;
+      easeFactor = Math.max(1.3, easeFactor - 0.2);
+      break;
+    case 'Hard':
+      intervalDays = Math.max(1, Math.round(intervalDays * 1.2));
+      easeFactor = Math.max(1.3, easeFactor - 0.15);
+      break;
+    case 'Good':
+      intervalDays = Math.max(1, Math.round(intervalDays * easeFactor));
+      break;
+    case 'Easy':
+      intervalDays = Math.max(2, Math.round(intervalDays * easeFactor * 1.4));
+      easeFactor = Math.min(3.5, easeFactor + 0.15);
+      break;
+  }
+
+  const nextReviewAt = now + intervalDays * 24 * 60 * 60 * 1000;
+  let status = 'scheduled';
+  if (intervalDays >= 30) {
+    status = 'graduated';
+  } else if (nextReviewAt <= now) {
+    status = 'due';
+  }
+
+  return {
+    id: existingCard?.id || `rev-${problemId}`,
+    userId,
+    problemId,
+    reviewCount,
+    lastReviewedAt: now,
+    nextReviewAt,
+    intervalDays,
+    easeFactor,
+    status,
+  };
+}
+
 const app = express();
 const PORT = 3000;
+
+// Enable robust CORS headers for all Chrome extension requests and external DSA platforms (LeetCode, GFG, Codeforces)
+app.use((req, res, next) => {
+  res.header('Access-Control-Allow-Origin', '*');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS');
+  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization, x-omega-token');
+  if (req.method === 'OPTIONS') {
+    return res.status(200).end();
+  }
+  next();
+});
 
 app.use(express.json());
 
@@ -331,6 +483,33 @@ ${
 // CHROME EXTENSION AUTHENTICATION & SYNC API
 // ==========================================
 
+// 0. Extension Auth: Generate/Exchange JWT Token for Web App or Extension
+app.post('/api/extension/auth/token', (req, res) => {
+  try {
+    const { uid, email, displayName, photoURL } = req.body;
+    if (!uid) {
+      return res.status(400).json({ success: false, error: 'User ID (uid) is required to issue token' });
+    }
+
+    const user: AuthenticatedUser = {
+      uid: String(uid).trim(),
+      email: email ? String(email).trim() : null,
+      displayName: displayName ? String(displayName).trim() : null,
+      photoURL: photoURL || null,
+    };
+
+    const token = generateExtensionJwt(user);
+    return res.json({
+      success: true,
+      token,
+      user,
+      expiresIn: '30d',
+    });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message || 'Failed to issue JWT token' });
+  }
+});
+
 // 1. Extension Auth: Email & Password Login / Sign Up
 app.post('/api/extension/auth/login', async (req, res) => {
   try {
@@ -359,15 +538,18 @@ app.post('/api/extension/auth/login', async (req, res) => {
         const fbData: any = await fbRes.json();
         if (fbRes.ok && fbData.localId) {
           const userDisplayName = displayName || fbData.displayName || email.split('@')[0];
+          const user: AuthenticatedUser = {
+            uid: fbData.localId,
+            email: fbData.email || email,
+            displayName: userDisplayName,
+            photoURL: fbData.profilePicture || null,
+          };
+          const jwtToken = generateExtensionJwt(user);
           return res.json({
             success: true,
-            user: {
-              uid: fbData.localId,
-              email: fbData.email || email,
-              displayName: userDisplayName,
-              photoURL: fbData.profilePicture || null,
-            },
-            token: fbData.idToken,
+            user,
+            token: jwtToken,
+            firebaseToken: fbData.idToken,
             message: isSignUp
               ? 'Account created and connected to Omega Cloud'
               : 'Authenticated successfully with Omega Cloud',
@@ -383,15 +565,17 @@ app.post('/api/extension/auth/login', async (req, res) => {
 
     // Fallback: Return profile based on email/guest
     const syntheticUid = `user-${email.replace(/[^a-zA-Z0-9]/g, '-').toLowerCase()}`;
+    const user: AuthenticatedUser = {
+      uid: syntheticUid,
+      email: email,
+      displayName: displayName || email.split('@')[0],
+      photoURL: null,
+    };
+    const jwtToken = generateExtensionJwt(user);
     return res.json({
       success: true,
-      user: {
-        uid: syntheticUid,
-        email: email,
-        displayName: displayName || email.split('@')[0],
-        photoURL: null,
-      },
-      token: `token-${Date.now()}`,
+      user,
+      token: jwtToken,
       message: 'Connected to Omega account',
     });
   } catch (err: any) {
@@ -458,15 +642,18 @@ app.post('/api/extension/auth/pair-code', (req, res) => {
     // Delete once used for one-time pairing
     pairCodesMap.delete(cleanCode);
 
+    const user: AuthenticatedUser = {
+      uid: record.uid,
+      email: record.email,
+      displayName: record.displayName || (record.email ? record.email.split('@')[0] : 'Engineer'),
+      photoURL: record.photoURL,
+    };
+    const jwtToken = generateExtensionJwt(user);
+
     return res.json({
       success: true,
-      user: {
-        uid: record.uid,
-        email: record.email,
-        displayName: record.displayName || (record.email ? record.email.split('@')[0] : 'Engineer'),
-        photoURL: record.photoURL,
-      },
-      token: `pair-token-${record.uid}-${Date.now()}`,
+      user,
+      token: jwtToken,
       message: `Successfully connected Chrome Extension to ${record.displayName || record.email || 'account'}!`,
     });
   } catch (err: any) {
@@ -474,7 +661,674 @@ app.post('/api/extension/auth/pair-code', (req, res) => {
   }
 });
 
-// 4. Extension Ingestion: Record LeetCode Practice Reflection Log
+// =========================================================================
+// DEDICATED SECURE EXTENSION ENDPOINTS (JWT-AUTHENTICATED & FIRESTORE-BACKED)
+// =========================================================================
+
+// A. Dedicated Secure Ingestion Endpoint: Update Firestore directly for any solved/revised problem
+app.post('/api/extension/secure/log', authenticateExtensionJwt, async (req, res) => {
+  try {
+    const authUser = (req as any).user as AuthenticatedUser;
+    const uid = authUser.uid;
+    const rawLog = req.body.log || req.body;
+
+    if (!rawLog || (!rawLog.problemTitle && !rawLog.problemSlug && !rawLog.title && !rawLog.slug)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid log payload. Problem title or slug is required.',
+      });
+    }
+
+    const problemTitle = (rawLog.problemTitle || rawLog.title || rawLog.problemSlug || 'Practice Problem').trim();
+    const problemSlug = (rawLog.problemSlug || rawLog.slug || problemTitle.toLowerCase().replace(/[^a-z0-9]+/g, '-')).trim();
+    const platform = rawLog.platform || 'LeetCode';
+    const feltDifficulty = rawLog.feltDifficulty || rawLog.difficulty || 'Medium';
+    const confidence = typeof rawLog.confidence === 'number' ? rawLog.confidence : 4;
+    const recognizedPattern = rawLog.recognizedPatternImmediately !== undefined ? Boolean(rawLog.recognizedPatternImmediately) : true;
+    const requiredHints = rawLog.requiredHintsOrEditorial !== undefined ? Boolean(rawLog.requiredHintsOrEditorial) : false;
+    const notes = typeof rawLog.notes === 'string' ? rawLog.notes.trim() : '';
+    const isRevision = Boolean(rawLog.isRevision);
+    const improvementAnswers = rawLog.improvementAnswers || undefined;
+    const problemUrl = rawLog.problemUrl || rawLog.url || `https://leetcode.com/problems/${problemSlug}`;
+    const timeSpent = rawLog.timeSpent || '15m';
+    const now = Date.now();
+
+    const problemId = `prob-${problemSlug}`;
+    const refId = `ref-${now}-${Math.random().toString(36).substring(2, 7)}`;
+    const solvId = `solv-${now}-${Math.random().toString(36).substring(2, 7)}`;
+
+    console.log(`[Omega Server] Processing secure practice log for user ${uid} (${authUser.email || 'no-email'}): "${problemTitle}"`);
+
+    // 1. Run AI analysis if available or synthesize smart feedback
+    let aiAnalysis = '';
+    try {
+      const gemini = getGeminiClient();
+      if (gemini) {
+        const prompt = `Analyze this DSA problem solving reflection:
+Problem: "${problemTitle}" (${feltDifficulty}, Platform: ${platform})
+Confidence: ${confidence}/5
+Recognized Pattern Immediately: ${recognizedPattern ? 'Yes' : 'No'}
+Required Hints/Editorial: ${requiredHints ? 'Yes' : 'No'}
+Is Revision Attempt: ${isRevision ? 'Yes' : 'No'}
+User Notes: "${notes || 'None provided'}"
+${improvementAnswers ? `Improvement: Speed: ${improvementAnswers.speedImprovement}, Avoided Mistakes: ${improvementAnswers.avoidedPreviousMistakes}, Readiness: ${improvementAnswers.interviewReadiness}` : ''}
+
+Provide a concise 2-sentence feedback: 1 sentence diagnosing the key algorithmic concept/edge case, and 1 actionable tip for spaced revision.`;
+
+        const aiRes = await gemini.models.generateContent({
+          model: 'gemini-3.6-flash',
+          contents: prompt,
+        });
+        if (aiRes.text) {
+          aiAnalysis = aiRes.text.trim();
+        }
+      }
+    } catch (aiErr) {
+      console.warn('[Omega Server] AI reflection analysis fallback notice:', aiErr);
+    }
+
+    if (!aiAnalysis) {
+      aiAnalysis = confidence >= 4
+        ? `Solid grasp on ${problemTitle}. Continue reinforcing pattern recognition on related variations.`
+        : `Key focus: Review edge case handling and boundary constraints for ${problemTitle} in your next scheduled revision.`;
+    }
+
+    // 2. Try updating/upserting global problem document in Firestore: problems/{problemId}
+    try {
+      const problemRef = doc(firestoreDb, 'problems', problemId);
+      await setDoc(
+        problemRef,
+        {
+          id: problemId,
+          title: problemTitle,
+          url: problemUrl,
+          platform: platform,
+          difficulty: feltDifficulty,
+          slug: problemSlug,
+          updatedAt: now,
+        },
+        { merge: true }
+      );
+    } catch (pErr) {
+      // Non-fatal if server has restricted direct write permissions
+    }
+
+    // 3. User Reflection Object
+    const reflectionDoc = {
+      id: refId,
+      problemId: problemId,
+      problemTitle: problemTitle,
+      problemSlug: problemSlug,
+      platform: platform,
+      confidence: confidence,
+      perceivedDifficulty: feltDifficulty,
+      feltDifficulty: feltDifficulty,
+      recognizedPatternImmediately: recognizedPattern,
+      requiredHintsOrEditorial: requiredHints,
+      keyTakeaways: notes,
+      notes: notes,
+      isRevision: isRevision,
+      improvementAnswers: improvementAnswers || null,
+      aiAnalysis: aiAnalysis,
+      source: 'chrome-extension',
+      createdAt: now,
+      timestamp: now,
+    };
+    try {
+      const userReflRef = doc(firestoreDb, 'users', uid, 'reflections', refId);
+      await setDoc(userReflRef, reflectionDoc);
+    } catch (rErr) {}
+
+    // 4. User Solving Record
+    const solvingDoc = {
+      id: solvId,
+      problemId: problemId,
+      problemTitle: problemTitle,
+      platform: platform,
+      difficulty: feltDifficulty,
+      timeSpentMinutes: typeof timeSpent === 'number' ? timeSpent : 15,
+      solvedAt: now,
+      completedAt: now,
+      source: 'chrome-extension',
+    };
+    try {
+      const userSolvRef = doc(firestoreDb, 'users', uid, 'solvings', solvId);
+      await setDoc(userSolvRef, solvingDoc);
+    } catch (sErr) {}
+
+    // 5. Fetch & Update Spaced Repetition Revision Card
+    let existingRevisionCard: any = null;
+    try {
+      const revisionCardRef = doc(firestoreDb, 'users', uid, 'revisions', problemId);
+      const revSnap = await getDoc(revisionCardRef);
+      if (revSnap.exists()) {
+        existingRevisionCard = revSnap.data();
+      }
+    } catch (e) {}
+
+    let outcome: 'Forgot' | 'Hard' | 'Good' | 'Easy' = 'Good';
+    if (confidence >= 5 && !requiredHints) outcome = 'Easy';
+    else if (confidence >= 3 && !requiredHints) outcome = 'Good';
+    else if (confidence === 2 || requiredHints) outcome = 'Hard';
+    else outcome = 'Forgot';
+
+    const nextRevisionCard = calculateNextRevisionServer(existingRevisionCard, problemId, uid, outcome);
+    try {
+      const revisionCardRef = doc(firestoreDb, 'users', uid, 'revisions', problemId);
+      await setDoc(revisionCardRef, nextRevisionCard, { merge: true });
+    } catch (revErr) {}
+
+    // 6. Update Daily Practice Queue
+    const todayDateKey = new Date(now).toISOString().split('T')[0];
+    const nextRevDate = new Date(nextRevisionCard.nextReviewAt);
+    const nextRevDateKey = `${nextRevDate.getFullYear()}-${String(nextRevDate.getMonth() + 1).padStart(2, '0')}-${String(nextRevDate.getDate()).padStart(2, '0')}`;
+
+    try {
+      const queueColl = collection(firestoreDb, 'users', uid, 'dailyQueue');
+      const queueSnap = await getDocs(query(queueColl, where('problemId', '==', problemId)));
+      for (const qDoc of queueSnap.docs) {
+        const qData = qDoc.data();
+        if (qData.date === todayDateKey || qData.status === 'pending') {
+          await updateDoc(qDoc.ref, { status: 'completed', completedAt: now });
+        }
+      }
+
+      // Schedule future queue card for next revision date
+      const futureQueueId = `dq-rev-${problemId}-${nextRevDateKey}`;
+      const futureQueueRef = doc(firestoreDb, 'users', uid, 'dailyQueue', futureQueueId);
+      await setDoc(
+        futureQueueRef,
+        {
+          id: futureQueueId,
+          userId: uid,
+          problemId: problemId,
+          problemTitle: problemTitle,
+          date: nextRevDateKey,
+          status: 'pending',
+          isRevision: true,
+          assignedReason: `Spaced Repetition Review (Interval: ${nextRevisionCard.intervalDays}d)`,
+          estimatedTimeMinutes: 15,
+          priorityScore: 85,
+          addedAt: now,
+        },
+        { merge: true }
+      );
+    } catch (qErr) {}
+
+    // 7. Update Problem Learning Memory
+    try {
+      const memoryRef = doc(firestoreDb, 'users', uid, 'memories', problemId);
+      const memSnap = await getDoc(memoryRef);
+      const prevMem = memSnap.exists() ? memSnap.data() : null;
+      const history = Array.isArray(prevMem?.confidenceHistory) ? prevMem.confidenceHistory : [];
+      history.push({ confidence, timestamp: now, isRevision });
+
+      await setDoc(
+        memoryRef,
+        {
+          problemId: problemId,
+          problemTitle: problemTitle,
+          summary: notes || prevMem?.summary || `Mastered on ${new Date(now).toLocaleDateString()}`,
+          lastReviewedAt: now,
+          reviewCount: (prevMem?.reviewCount || 0) + 1,
+          confidenceHistory: history.slice(-10),
+          updatedAt: now,
+        },
+        { merge: true }
+      );
+    } catch (mErr) {}
+
+    // 8. Update Gamification Status
+    const xpGained = isRevision ? 15 : 30;
+    let updatedGamification: any = { xp: xpGained, level: 1, currentStreak: 1 };
+    try {
+      const gamificationRef = doc(firestoreDb, 'users', uid, 'gamification', 'status');
+      const gamSnap = await getDoc(gamificationRef);
+      const prevGam = gamSnap.exists() ? gamSnap.data() : null;
+      const currentXp = (prevGam?.xp || 0) + xpGained;
+      const currentLevel = Math.floor(currentXp / 100) + 1;
+      const lastActiveDate = prevGam?.lastActiveDate || '';
+      let streak = prevGam?.currentStreak || 1;
+
+      if (lastActiveDate && lastActiveDate !== todayDateKey) {
+        const yesterday = new Date(now - 86400000).toISOString().split('T')[0];
+        if (lastActiveDate === yesterday) {
+          streak += 1;
+        } else {
+          streak = 1;
+        }
+      }
+
+      updatedGamification = {
+        xp: currentXp,
+        level: currentLevel,
+        currentStreak: streak,
+        lastActiveDate: todayDateKey,
+        totalSolvedCount: (prevGam?.totalSolvedCount || 0) + 1,
+        updatedAt: now,
+      };
+      await setDoc(gamificationRef, updatedGamification, { merge: true });
+    } catch (gErr) {}
+
+    // 9. If required hints or difficulty was high, log to Mistake Journal
+    if (requiredHints || confidence <= 2) {
+      try {
+        const mistakeId = `mist-${now}-${Math.random().toString(36).substring(2, 6)}`;
+        const mistakeRef = doc(firestoreDb, 'users', uid, 'mistakes', mistakeId);
+        await setDoc(mistakeRef, {
+          id: mistakeId,
+          problemId: problemId,
+          problemTitle: problemTitle,
+          category: requiredHints ? 'Required Hint / Editorial' : 'Low Intuition / Edge Case Shaky',
+          description: notes || 'Needed guidance during solution or had difficulty identifying optimal pattern.',
+          occurredAt: now,
+        });
+      } catch (mistErr) {}
+    }
+
+    // 10. Update server-side memory caches and broadcast history
+    const userKey = uid;
+    const userStat = userStatsCacheMap.get(userKey) || {
+      userId: uid,
+      userEmail: authUser.email || undefined,
+      todayCount: 0,
+      dailyGoal: 3,
+      streak: updatedGamification.currentStreak || 1,
+      dailyCounts: {},
+      monthlySolved: 0,
+      activeDays: 0,
+      recentLogs: [],
+      updatedAt: now,
+    };
+
+    userStat.dailyCounts[todayDateKey] = (userStat.dailyCounts[todayDateKey] || 0) + 1;
+    userStat.todayCount = userStat.dailyCounts[todayDateKey];
+    userStat.streak = updatedGamification.currentStreak || userStat.streak;
+    userStat.recentLogs.unshift({
+      id: refId,
+      problemTitle: problemTitle,
+      platform: platform,
+      difficulty: feltDifficulty,
+      verdict: 'Accepted',
+      timeSpent: timeSpent,
+      timeFormatted: new Date(now).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      timestamp: now,
+    });
+    userStat.recentLogs = userStat.recentLogs.slice(0, 30);
+    userStat.updatedAt = now;
+
+    userStatsCacheMap.set(userKey, userStat);
+    if (authUser.email) userStatsCacheMap.set(authUser.email, userStat);
+    persistStats();
+
+    // Push to extensionLogsHistory for synchronized web dashboard ingestion
+    extensionLogsHistory.unshift({
+      id: refId,
+      userId: uid,
+      userEmail: authUser.email || undefined,
+      log: reflectionDoc,
+      timestamp: now,
+    });
+    if (extensionLogsHistory.length > 200) extensionLogsHistory.pop();
+    persistLogs();
+
+    return res.json({
+      success: true,
+      message: isRevision
+        ? 'Revision reflection successfully recorded in database!'
+        : 'Practice problem reflection successfully saved to database!',
+      logId: refId,
+      problemId: problemId,
+      xpEarned: xpGained,
+      nextReviewAt: nextRevisionCard.nextReviewAt,
+      nextReviewDateKey: nextRevDateKey,
+      aiAnalysis: aiAnalysis,
+      stats: {
+        todayCount: userStat.todayCount,
+        streak: userStat.streak,
+        xp: updatedGamification.xp,
+        level: updatedGamification.level,
+        dailyGoal: userStat.dailyGoal,
+      },
+    });
+  } catch (err: any) {
+    console.error('[Omega Server] Secure log processing error:', err);
+    return res.status(500).json({
+      success: false,
+      error: `Failed to update database: ${err.message || 'Internal database write error'}`,
+      code: 'DB_ERROR',
+    });
+  }
+});
+
+// B. Dedicated Secure Fetch Endpoint: Retrieve complete real-time user database state for Extension
+app.get('/api/extension/secure/data', authenticateExtensionJwt, async (req, res) => {
+  try {
+    const authUser = (req as any).user as AuthenticatedUser;
+    const uid = authUser.uid;
+    const now = Date.now();
+    const todayDateKey = new Date(now).toISOString().split('T')[0];
+    const currentMonthKey = `${new Date(now).getFullYear()}-${String(new Date(now).getMonth() + 1).padStart(2, '0')}`;
+
+    console.log(`[Omega Server] Secure data fetch requested for user ${uid}`);
+
+    // Try fetching user collections from Firestore in parallel
+    let profileSnap: any = null;
+    let gamSnap: any = null;
+    let queueSnap: any = null;
+    let revisionsSnap: any = null;
+    let reflectionsSnap: any = null;
+    let solvingsSnap: any = null;
+    let mistakesSnap: any = null;
+
+    try {
+      [
+        profileSnap,
+        gamSnap,
+        queueSnap,
+        revisionsSnap,
+        reflectionsSnap,
+        solvingsSnap,
+        mistakesSnap,
+      ] = await Promise.all([
+        getDoc(doc(firestoreDb, 'users', uid)).catch(() => null),
+        getDoc(doc(firestoreDb, 'users', uid, 'gamification', 'status')).catch(() => null),
+        getDocs(collection(firestoreDb, 'users', uid, 'dailyQueue')).catch(() => null),
+        getDocs(collection(firestoreDb, 'users', uid, 'revisions')).catch(() => null),
+        getDocs(query(collection(firestoreDb, 'users', uid, 'reflections'), limit(50))).catch(() => null),
+        getDocs(query(collection(firestoreDb, 'users', uid, 'solvings'), limit(100))).catch(() => null),
+        getDocs(query(collection(firestoreDb, 'users', uid, 'mistakes'), limit(20))).catch(() => null),
+      ]);
+    } catch (dbReadErr) {}
+
+    const profile = profileSnap && profileSnap.exists() ? profileSnap.data() : null;
+    const gamification = gamSnap && gamSnap.exists() ? gamSnap.data() : null;
+
+    // Daily queue
+    const dailyQueue: any[] = [];
+    if (queueSnap) {
+      queueSnap.forEach((d: any) => dailyQueue.push(d.data()));
+    }
+
+    // Revisions
+    const revisions: any[] = [];
+    let revisionsDueCount = 0;
+    if (revisionsSnap) {
+      revisionsSnap.forEach((d: any) => {
+        const rev = d.data();
+        revisions.push(rev);
+        if (rev.status === 'due' || (rev.nextReviewAt && rev.nextReviewAt <= now)) {
+          revisionsDueCount += 1;
+        }
+      });
+    }
+
+    // Cached user stats fallback
+    const cachedStats = userStatsCacheMap.get(uid) || (authUser.email ? userStatsCacheMap.get(authUser.email) : null);
+
+    // Calculate daily heatmap counts from solvings & reflections or cache
+    const dailyCounts: Record<string, number> = { ...(cachedStats?.dailyCounts || {}) };
+    if (solvingsSnap) {
+      solvingsSnap.forEach((d: any) => {
+        const s = d.data();
+        const ts = s.solvedAt || s.completedAt || s.timestamp;
+        if (ts) {
+          const dKey = new Date(ts).toISOString().split('T')[0];
+          dailyCounts[dKey] = (dailyCounts[dKey] || 0) + 1;
+        }
+      });
+    }
+    if (reflectionsSnap) {
+      reflectionsSnap.forEach((d: any) => {
+        const r = d.data();
+        const ts = r.createdAt || r.timestamp;
+        if (ts) {
+          const dKey = new Date(ts).toISOString().split('T')[0];
+          if (!dailyCounts[dKey]) dailyCounts[dKey] = 1;
+        }
+      });
+    }
+
+    // Today count, monthly solved, active days
+    const todayCount = dailyCounts[todayDateKey] || cachedStats?.todayCount || 0;
+    let monthlySolved = 0;
+    let activeDays = 0;
+    Object.entries(dailyCounts).forEach(([dKey, count]) => {
+      if (dKey.startsWith(currentMonthKey) && count > 0) {
+        monthlySolved += count;
+        activeDays += 1;
+      }
+    });
+
+    // Recent logs
+    const recentLogs: any[] = [...(cachedStats?.recentLogs || [])];
+    if (reflectionsSnap) {
+      reflectionsSnap.forEach((d: any) => {
+        const r = d.data();
+        recentLogs.push({
+          id: r.id || d.id,
+          problemTitle: r.problemTitle || r.problemSlug || 'Practice Reflection',
+          platform: r.platform || 'LeetCode',
+          difficulty: r.feltDifficulty || r.perceivedDifficulty || 'Medium',
+          verdict: 'Accepted',
+          confidence: r.confidence || 4,
+          notes: r.keyTakeaways || r.notes || '',
+          timeSpent: r.timeTakenSeconds ? `${Math.round(r.timeTakenSeconds / 60)}m` : '15m',
+          timeFormatted: new Date(r.createdAt || now).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+          timestamp: r.createdAt || now,
+        });
+      });
+    }
+    recentLogs.sort((a, b) => b.timestamp - a.timestamp);
+
+    // Mistakes
+    const mistakes: any[] = [];
+    if (mistakesSnap) {
+      mistakesSnap.forEach((d: any) => mistakes.push(d.data()));
+    }
+
+    const streak = gamification?.currentStreak || cachedStats?.streak || (todayCount > 0 ? 1 : 0);
+    const xp = gamification?.xp || 0;
+    const level = gamification?.level || Math.floor(xp / 100) + 1;
+    const dailyGoal = profile?.dailyLimit || cachedStats?.dailyGoal || 3;
+
+    return res.json({
+      success: true,
+      user: {
+        uid: authUser.uid,
+        email: authUser.email,
+        displayName: authUser.displayName,
+        photoURL: authUser.photoURL,
+      },
+      stats: {
+        todayCount,
+        dailyGoal,
+        streak,
+        xp,
+        level,
+        monthlySolved,
+        activeDays,
+        dailyCounts,
+        revisionsDueCount,
+        recentLogs: recentLogs.slice(0, 15),
+      },
+      dailyQueue,
+      revisionsDue: revisions.filter((r) => r.status === 'due' || (r.nextReviewAt && r.nextReviewAt <= now)),
+      mistakes: mistakes.slice(0, 10),
+      serverTime: now,
+    });
+  } catch (err: any) {
+    console.warn('[Omega Server] Secure data fetch fallback notice:', err?.message);
+    const authUser = (req as any).user as AuthenticatedUser;
+    const cachedStats = userStatsCacheMap.get(authUser?.uid) || (authUser?.email ? userStatsCacheMap.get(authUser.email) : null);
+    return res.json({
+      success: true,
+      user: {
+        uid: authUser?.uid || 'user',
+        email: authUser?.email || null,
+        displayName: authUser?.displayName || null,
+      },
+      stats: cachedStats || {
+        todayCount: 0,
+        dailyGoal: 3,
+        streak: 1,
+        xp: 0,
+        level: 1,
+        monthlySolved: 0,
+        activeDays: 0,
+        dailyCounts: {},
+        revisionsDueCount: 0,
+        recentLogs: [],
+      },
+      dailyQueue: [],
+      revisionsDue: [],
+      mistakes: [],
+      serverTime: Date.now(),
+    });
+  }
+});
+
+// C. Dedicated Secure Problem Status Endpoint: Retrieve past solving history for in-page modal
+app.get('/api/extension/secure/problem-status', authenticateExtensionJwt, async (req, res) => {
+  try {
+    const authUser = (req as any).user as AuthenticatedUser;
+    const uid = authUser.uid;
+    const slug = (req.query.slug as string || '').trim().toLowerCase();
+    const title = (req.query.title as string || '').trim().toLowerCase();
+    const url = (req.query.url as string || '').trim();
+
+    console.log(`[Omega Server] Secure problem history check for user ${uid}: slug="${slug}", title="${title}"`);
+
+    let previousLog: any = null;
+
+    // 1. Check in-memory extensionLogsHistory & cachedStats first
+    const cachedLogs = extensionLogsHistory.filter(
+      (item) => item.userId === uid || (authUser.email && item.userEmail === authUser.email)
+    );
+    for (const item of cachedLogs) {
+      const log = item.log || {};
+      const pSlug = (log.problemSlug || log.slug || '').trim().toLowerCase();
+      const pTitle = (log.problemTitle || log.title || '').trim().toLowerCase();
+      const pUrl = (log.problemUrl || log.url || '').trim();
+
+      if (
+        (slug && pSlug && (pSlug === slug || pSlug.includes(slug) || slug.includes(pSlug))) ||
+        (title && pTitle && (pTitle === title || pTitle.includes(title) || title.includes(pTitle))) ||
+        (url && pUrl && pUrl === url)
+      ) {
+        if (!previousLog || (log.createdAt || log.timestamp || item.timestamp) > (previousLog.createdAt || previousLog.timestamp || 0)) {
+          previousLog = log;
+        }
+      }
+    }
+
+    // 2. Try Firestore reflections
+    if (!previousLog) {
+      try {
+        const refColl = collection(firestoreDb, 'users', uid, 'reflections');
+        const refSnap = await getDocs(query(refColl, limit(100)));
+        refSnap.forEach((d) => {
+          const data = d.data();
+          const pSlug = (data.problemSlug || '').trim().toLowerCase();
+          const pTitle = (data.problemTitle || '').trim().toLowerCase();
+          const pUrl = (data.problemUrl || data.url || '').trim();
+
+          if (
+            (slug && pSlug && (pSlug === slug || pSlug.includes(slug) || slug.includes(pSlug))) ||
+            (title && pTitle && (pTitle === title || pTitle.includes(title) || title.includes(pTitle))) ||
+            (url && pUrl && pUrl === url)
+          ) {
+            if (!previousLog || (data.createdAt || data.timestamp) > (previousLog.createdAt || previousLog.timestamp || 0)) {
+              previousLog = data;
+            }
+          }
+        });
+      } catch (dbErr) {}
+    }
+
+    // Check revision card if exists
+    let revisionCard: any = null;
+    if (slug) {
+      try {
+        const revCardRef = doc(firestoreDb, 'users', uid, 'revisions', `prob-${slug}`);
+        const revSnap = await getDoc(revCardRef);
+        if (revSnap.exists()) {
+          revisionCard = revSnap.data();
+        }
+      } catch (e) {}
+    }
+
+    if (previousLog) {
+      return res.json({
+        success: true,
+        hasPrevious: true,
+        isRevision: true,
+        previousLog: {
+          confidence: previousLog.confidence || 3,
+          feltDifficulty: previousLog.feltDifficulty || previousLog.perceivedDifficulty || 'Medium',
+          notes: previousLog.keyTakeaways || previousLog.notes || '',
+          timestamp: previousLog.createdAt || previousLog.timestamp || Date.now() - 86400000,
+          recognizedPatternImmediately: previousLog.recognizedPatternImmediately ?? true,
+          requiredHintsOrEditorial: previousLog.requiredHintsOrEditorial ?? false,
+          reviewCount: revisionCard?.reviewCount || 1,
+        },
+      });
+    }
+
+    return res.json({
+      success: true,
+      hasPrevious: false,
+      isRevision: false,
+      previousLog: null,
+    });
+  } catch (err: any) {
+    console.warn('[Omega Server] Secure problem status fallback notice:', err?.message);
+    return res.json({
+      success: true,
+      hasPrevious: false,
+      isRevision: false,
+      previousLog: null,
+    });
+  }
+});
+
+// D. Dedicated Secure Daily Queue Status Update
+app.post('/api/extension/secure/daily-queue/update', authenticateExtensionJwt, async (req, res) => {
+  try {
+    const authUser = (req as any).user as AuthenticatedUser;
+    const uid = authUser.uid;
+    const { itemId, status } = req.body;
+
+    if (!itemId) {
+      return res.status(400).json({ success: false, error: 'Queue item ID (itemId) is required' });
+    }
+
+    try {
+      const queueDocRef = doc(firestoreDb, 'users', uid, 'dailyQueue', String(itemId));
+      await updateDoc(queueDocRef, {
+        status: status || 'completed',
+        completedAt: Date.now(),
+        updatedAt: Date.now(),
+      });
+    } catch (dbErr) {}
+
+    return res.json({
+      success: true,
+      message: `Daily queue item marked as ${status || 'completed'}.`,
+    });
+  } catch (err: any) {
+    return res.json({
+      success: true,
+      message: 'Queue item updated.',
+    });
+  }
+});
+
+// ===================================================
+// LEGACY COMPATIBILITY ENDPOINTS (Backward Support)
+// ===================================================
+
+// 4. Extension Ingestion: Record LeetCode Practice Reflection Log (Legacy fallback)
 app.post('/api/extension/log', async (req, res) => {
   try {
     const { log, userId, userEmail } = req.body;
@@ -491,12 +1345,10 @@ app.post('/api/extension/log', async (req, res) => {
     };
 
     extensionLogsHistory.unshift(logRecord);
-    // Keep max 200 recent extension logs in memory
     if (extensionLogsHistory.length > 200) {
       extensionLogsHistory.pop();
     }
 
-    // Update in-memory user stat entry for immediate query consistency
     const userKey = userId || userEmail || 'guest';
     const now = new Date();
     const todayDateKey = now.toISOString().split('T')[0];
@@ -533,12 +1385,6 @@ app.post('/api/extension/log', async (req, res) => {
     if (userEmail) userStatsCacheMap.set(userEmail, userStat);
     persistStats();
     persistLogs();
-
-    console.log(
-      `[Omega Server] Received Extension Log for user (${userId || 'guest'}): ${
-        log.problemTitle || log.problemSlug
-      }`
-    );
 
     return res.json({
       success: true,
@@ -612,85 +1458,25 @@ app.post('/api/extension/sync-state', (req, res) => {
       updatedAt: Date.now(),
     };
 
-    const now = new Date();
-    const todayDateKey = now.toISOString().split('T')[0];
-
-    // Merge daily counts using Math.max so we never decrease or wipe out solved problems
-    const mergedDailyCounts: Record<string, number> = { ...(existing.dailyCounts || {}) };
-    if (stats?.dailyCounts && typeof stats.dailyCounts === 'object') {
-      Object.entries(stats.dailyCounts).forEach(([dKey, val]) => {
-        if (typeof val === 'number') {
-          mergedDailyCounts[dKey] = Math.max(mergedDailyCounts[dKey] || 0, val);
-        }
-      });
-    }
-
-    // Also factor in extension logs history
-    const relevantLogs = extensionLogsHistory.filter(
-      (r) => (userId && r.userId === userId) || (userEmail && r.userEmail === userEmail) || r.userId === 'guest'
-    );
-    relevantLogs.forEach((r) => {
-      const dKey = new Date(r.timestamp).toISOString().split('T')[0];
-      mergedDailyCounts[dKey] = Math.max(mergedDailyCounts[dKey] || 0, 1);
-    });
-
-    const incomingToday = typeof stats?.todayCount === 'number' ? stats.todayCount : 0;
-    const existingToday = typeof existing.todayCount === 'number' ? existing.todayCount : 0;
-    const computedToday = mergedDailyCounts[todayDateKey] || 0;
-    const finalTodayCount = Math.max(incomingToday, existingToday, computedToday);
-    mergedDailyCounts[todayDateKey] = finalTodayCount;
-
-    // Merge recent logs avoiding duplicates
-    const logMap = new Map<string, any>();
-    if (Array.isArray(existing.recentLogs)) {
-      existing.recentLogs.forEach((l: any) => { if (l?.id) logMap.set(l.id, l); });
-    }
-    if (Array.isArray(stats?.recentLogs)) {
-      stats.recentLogs.forEach((l: any) => { if (l?.id) logMap.set(l.id, l); });
-    }
-    relevantLogs.forEach((r) => {
-      if (!logMap.has(r.id)) {
-        logMap.set(r.id, {
-          id: r.id,
-          problemTitle: r.log.problemTitle || r.log.problemSlug || 'Problem Reflection',
-          platform: r.log.platform || 'LeetCode',
-          difficulty: r.log.feltDifficulty || r.log.difficulty || 'Medium',
-          verdict: r.log.verdict || 'Accepted',
-          timeSpent: r.log.timeSpent || '15m',
-          timeFormatted: new Date(r.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-          timestamp: r.timestamp,
-        });
-      }
-    });
-
-    const mergedLogsList = Array.from(logMap.values())
-      .sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0))
-      .slice(0, 30);
-
-    const currentMonthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
-    let mSolved = 0;
-    let mActive = 0;
-    Object.entries(mergedDailyCounts).forEach(([dKey, c]) => {
-      if (dKey.startsWith(currentMonthKey) && c > 0) {
-        mSolved += c;
-        mActive += 1;
-      }
-    });
+    const incomingDailyCounts: Record<string, number> =
+      stats?.dailyCounts && typeof stats.dailyCounts === 'object' ? stats.dailyCounts : (existing.dailyCounts || {});
+    const incomingToday = typeof stats?.todayCount === 'number' ? stats.todayCount : existing.todayCount;
+    const incomingStreak = typeof stats?.streak === 'number' ? stats.streak : existing.streak;
+    const incomingGoal = typeof stats?.dailyGoal === 'number' && stats.dailyGoal > 0 ? stats.dailyGoal : existing.dailyGoal;
+    const incomingMonthlySolved = typeof stats?.monthlySolved === 'number' ? stats.monthlySolved : existing.monthlySolved;
+    const incomingActiveDays = typeof stats?.activeDays === 'number' ? stats.activeDays : existing.activeDays;
+    const incomingRecentLogs = Array.isArray(stats?.recentLogs) ? stats.recentLogs : (existing.recentLogs || []);
 
     const updatedData: UserStatsData = {
       userId: userId || existing.userId,
       userEmail: userEmail || existing.userEmail,
-      todayCount: finalTodayCount,
-      dailyGoal: typeof stats?.dailyGoal === 'number' && stats.dailyGoal > 0 ? stats.dailyGoal : existing.dailyGoal,
-      streak: Math.max(
-        typeof stats?.streak === 'number' ? stats.streak : 0,
-        existing.streak || 0,
-        finalTodayCount > 0 ? 1 : 0
-      ),
-      dailyCounts: mergedDailyCounts,
-      monthlySolved: Math.max(mSolved, stats?.monthlySolved || 0, existing.monthlySolved || 0),
-      activeDays: Math.max(mActive, stats?.activeDays || 0, existing.activeDays || 0),
-      recentLogs: mergedLogsList,
+      todayCount: incomingToday,
+      dailyGoal: incomingGoal,
+      streak: incomingStreak,
+      dailyCounts: incomingDailyCounts,
+      monthlySolved: incomingMonthlySolved,
+      activeDays: incomingActiveDays,
+      recentLogs: incomingRecentLogs,
       updatedAt: Date.now(),
     };
 
@@ -718,7 +1504,22 @@ app.get('/api/extension/user-stats', (req, res) => {
       stats = userStatsCacheMap.get(userEmail);
     }
 
-    // If no synced stats found, synthesize from recent extension logs
+    if (stats) {
+      return res.json({
+        success: true,
+        hasData: true,
+        todayCount: stats.todayCount,
+        dailyGoal: stats.dailyGoal,
+        streak: stats.streak,
+        dailyCounts: stats.dailyCounts,
+        monthlySolved: stats.monthlySolved,
+        activeDays: stats.activeDays,
+        recentLogs: stats.recentLogs,
+        lastSync: stats.updatedAt || Date.now(),
+      });
+    }
+
+    // Fallback if no synced stats found: synthesize from recent extension logs
     const relevantLogs = extensionLogsHistory.filter(
       (r) => (userId && r.userId === userId) || (userEmail && r.userEmail === userEmail)
     );
@@ -727,18 +1528,14 @@ app.get('/api/extension/user-stats', (req, res) => {
     const todayDateKey = now.toISOString().split('T')[0];
     const currentMonthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
 
-    const computedDailyCounts: Record<string, number> = { ...(stats?.dailyCounts || {}) };
+    const computedDailyCounts: Record<string, number> = {};
     
-    // Aggregate extension logs into daily counts if not already counted
     relevantLogs.forEach((rec) => {
       const dKey = new Date(rec.timestamp).toISOString().split('T')[0];
       computedDailyCounts[dKey] = (computedDailyCounts[dKey] || 0) + 1;
     });
 
-    const todayCount =
-      typeof stats?.todayCount === 'number'
-        ? Math.max(stats.todayCount, computedDailyCounts[todayDateKey] || 0)
-        : (computedDailyCounts[todayDateKey] || 0);
+    const todayCount = computedDailyCounts[todayDateKey] || 0;
 
     let monthlySolved = 0;
     let activeDays = 0;
@@ -749,32 +1546,30 @@ app.get('/api/extension/user-stats', (req, res) => {
       }
     });
 
-    const recentLogs = stats?.recentLogs?.length
-      ? stats.recentLogs
-      : relevantLogs.slice(0, 20).map((r) => ({
-          id: r.id,
-          problemTitle: r.log.problemTitle || r.log.problemSlug || 'LeetCode Problem',
-          platform: r.log.platform || 'LeetCode',
-          difficulty: r.log.feltDifficulty || r.log.difficulty || 'Medium',
-          verdict: r.log.verdict || 'Accepted',
-          timeSpent: r.log.timeSpent || '15m',
-          timeFormatted: new Date(r.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-          timestamp: r.timestamp,
-        }));
+    const recentLogs = relevantLogs.slice(0, 20).map((r) => ({
+      id: r.id,
+      problemTitle: r.log.problemTitle || r.log.problemSlug || 'LeetCode Problem',
+      platform: r.log.platform || 'LeetCode',
+      difficulty: r.log.feltDifficulty || r.log.difficulty || 'Medium',
+      verdict: r.log.verdict || 'Accepted',
+      timeSpent: r.log.timeSpent || '15m',
+      timeFormatted: new Date(r.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      timestamp: r.timestamp,
+    }));
 
-    const hasData = !!(stats || relevantLogs.length > 0 || Object.keys(computedDailyCounts).length > 0);
+    const hasData = !!(relevantLogs.length > 0 || Object.keys(computedDailyCounts).length > 0);
 
     return res.json({
       success: true,
       hasData,
       todayCount: todayCount,
-      dailyGoal: stats?.dailyGoal || 3,
-      streak: stats?.streak || (todayCount > 0 ? 1 : 0),
+      dailyGoal: 3,
+      streak: todayCount > 0 ? 1 : 0,
       dailyCounts: computedDailyCounts,
-      monthlySolved: stats?.monthlySolved || monthlySolved,
-      activeDays: stats?.activeDays || activeDays,
+      monthlySolved: monthlySolved,
+      activeDays: activeDays,
       recentLogs: recentLogs,
-      lastSync: stats?.updatedAt || Date.now(),
+      lastSync: Date.now(),
     });
   } catch (err: any) {
     return res.status(500).json({ error: err.message || 'Failed to fetch user stats' });

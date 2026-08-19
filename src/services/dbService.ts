@@ -148,8 +148,8 @@ export async function getGlobalProblemCatalog(): Promise<Problem[]> {
       const prob = d.data() as Problem;
       if (prob.platform && ALLOWED_PLATFORMS.has(prob.platform)) {
         firestoreList.push(prob);
-      } else {
-        // Asynchronously delete disallowed platform problems from Firestore
+      } else if (auth.currentUser) {
+        // Asynchronously delete disallowed platform problems from Firestore only if authenticated
         deleteDoc(doc(db, 'problems', d.id)).catch(() => {});
       }
     }
@@ -161,8 +161,8 @@ export async function getGlobalProblemCatalog(): Promise<Problem[]> {
     const existingIds = new Set(firestoreList.map((p) => p.id));
     const missingDefaults = cleanDefaultCatalog.filter((p) => !existingIds.has(p.id));
 
-    if (missingDefaults.length > 0) {
-      // Seed missing defaults into Firestore asynchronously
+    if (missingDefaults.length > 0 && auth.currentUser) {
+      // Seed missing defaults into Firestore asynchronously only if authenticated
       Promise.all(
         missingDefaults.map((p) =>
           setDoc(doc(db, 'problems', p.id), p, { merge: true }).catch(() => {})

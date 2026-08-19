@@ -96,7 +96,7 @@
       }
       if (!list.includes(key)) {
         list.unshift(key);
-        sessionStorage.setItem(HANDLED_STORAGE_KEY, JSON.stringify(list.slice(0, 100)));
+        sessionStorage.setItem(HANDLED_STORAGE_KEY, JSON.stringify(list.slice(0, 150)));
       }
     } catch (e) {}
 
@@ -115,7 +115,7 @@
           const exists = list.some((item) => (typeof item === 'string' ? item === key : item.key === key));
           if (!exists) {
             list.unshift({ key, ts: now });
-            chrome.storage.local.set({ [HANDLED_STORAGE_KEY]: list.slice(0, 150) });
+            chrome.storage.local.set({ [HANDLED_STORAGE_KEY]: list.slice(0, 200) });
           }
         });
       }
@@ -124,6 +124,36 @@
 
   // Initialize storage immediately
   loadHandledSubmissions();
+
+  // Mark all existing DOM elements on load so pre-existing "Accepted" results are NEVER falsely triggered
+  function markExistingDOMElementsAsSeen() {
+    try {
+      const candidates = document.querySelectorAll(
+        [
+          '[data-e2e-locator="submission-result"]',
+          '[class*="result__"]',
+          'div[class*="status__"]',
+          'div[data-layout-path*="submission"]',
+          'a[href*="/submissions/detail/"]',
+          '.text-green-s',
+          '[class*="text-green"]',
+          '.problems_header_content',
+          '[class*="problemSolved"]',
+          '[class*="successBanner"]',
+          'span.verdict-accepted',
+          'span.verdict-green',
+          'td.status-verdict-cell span'
+        ].join(',')
+      );
+      candidates.forEach((el) => {
+        el.setAttribute('data-omega-seen', 'true');
+      });
+    } catch (e) {}
+  }
+
+  // Initial tag on load
+  markExistingDOMElementsAsSeen();
+  setTimeout(markExistingDOMElementsAsSeen, 1500);
 
   // Simple string hash helper to generate deterministic submission signatures
   function hashString(str) {
@@ -140,12 +170,15 @@
   // --- 2. Submit Button Intent & Network Request Tracking ---
   let lastSubmitIntentTime = 0;
   let lastSubmitIntentSource = '';
-  const INTENT_VALIDITY_WINDOW_MS = 120000; // 2 minutes window for test execution, judging & evaluation
+  const INTENT_VALIDITY_WINDOW_MS = 120000; // 2 minutes window for test execution & judging
+  const MIN_JUDGING_DELAY_MS = 600; // Minimum duration for server judging before evaluating DOM results
 
   function armSubmissionIntent(source) {
     lastSubmitIntentTime = Date.now();
     lastSubmitIntentSource = source || 'button_click';
-    console.log(`[Omega] Submit intent registered via [${lastSubmitIntentSource}] at ${new Date(lastSubmitIntentTime).toLocaleTimeString()}`);
+    // Immediately mark existing elements as seen so pre-existing DOM results can NEVER be misidentified as the new run
+    markExistingDOMElementsAsSeen();
+    console.log(`[Omega] Submit intent armed via [${lastSubmitIntentSource}] at ${new Date(lastSubmitIntentTime).toLocaleTimeString()}. Waiting for server judging to complete...`);
   }
 
   function isSubmitIntentArmed() {
@@ -158,6 +191,67 @@
     lastSubmitIntentTime = 0;
     lastSubmitIntentSource = '';
   }
+
+  // --- 3. In-Page Network & API Interceptor (Main-World Injection) ---
+  function injectMainWorldInterceptor() {
+    try {
+      if (typeof chrome !== 'undefined' && chrome.runtime?.getURL) {
+        const script = document.createElement('script');
+        script.src = chrome.runtime.getURL('injected.js');
+        script.onload = function () {
+          this.remove();
+        };
+        (document.head || document.documentElement).appendChild(script);
+      }
+    } catch (e) {
+      console.warn('[Omega Extension] Could not inject in-page API interceptor:', e);
+    }
+  }
+
+  injectMainWorldInterceptor();
+
+  // Listen for intercepted API verification events from injected.js
+  window.addEventListener('message', (event) => {
+    if (event.source !== window) return;
+    if (event.data?.type === 'OMEGA_INTERCEPTED_SUBMISSION') {
+      const { platform, verdict, submissionId, success } = event.data;
+      console.log(`[Omega API Interceptor] Intercepted submission: platform=${platform}, verdict=${verdict}, id=${submissionId}, success=${success}`);
+
+      if (!success || verdict !== 'Accepted') {
+        console.log(`[Omega API Interceptor] Submission result is "${verdict}" (Not Accepted). Resetting submit intent.`);
+        consumeSubmissionIntent();
+        markExistingDOMElementsAsSeen();
+        return;
+      }
+
+      // If submit intent was not armed within the last 2 minutes, ignore random responses
+      if (!isSubmitIntentArmed()) {
+        console.log('[Omega API Interceptor] Ignoring result because submit intent was not actively armed.');
+        return;
+      }
+
+      const details = getProblemDetails();
+      if (platform) details.platform = platform;
+
+      const subKeyId = submissionId || hashString(`${details.slug}-${Math.floor(Date.now() / 30000)}`);
+      const uniqueKey = `${(platform || 'code').toLowerCase()}-${details.slug}-${subKeyId}`;
+
+      // Deduplication Check
+      if (isSubmissionAlreadyHandled(uniqueKey)) {
+        console.log(`[Omega API Interceptor] Submission "${uniqueKey}" was already handled. Skipping duplicate modal.`);
+        consumeSubmissionIntent();
+        return;
+      }
+
+      // Mark handled, consume intent, and open reflection dialog
+      markSubmissionAsHandled(uniqueKey);
+      consumeSubmissionIntent();
+      markExistingDOMElementsAsSeen();
+
+      console.log('[Omega] Verified fresh Accepted submission via API interceptor:', details);
+      triggerSubmissionModal(details);
+    }
+  });
 
   // Set up listeners for submit clicks, keyboard shortcuts, forms, and network/busy states
   function setupSubmitIntentListeners() {
@@ -202,7 +296,10 @@
             '[data-e2e-locator="console-submit-button"], [data-cy="submit-code-btn"], #submitProblem, input[type="submit"][value*="Submit" i]'
           );
 
-        if (isSubmitButton) {
+        // Disregard "Run Code" / "Run" clicks
+        const isRunOnly = /^\s*(Run|Run Code|Test Code|Run Tests)\b/i.test(text);
+
+        if (isSubmitButton && !isRunOnly) {
           armSubmissionIntent('button_click');
         }
       }
@@ -521,6 +618,8 @@
     const checkLeetCodeSubmissions = () => {
       if (isModalOpen) return;
       if (!isSubmitIntentArmed()) return;
+      // Do not evaluate prematurely while server judging is in progress
+      if (Date.now() - lastSubmitIntentTime < MIN_JUDGING_DELAY_MS) return;
 
       // Look for result containers or accepted indicators
       const candidates = document.querySelectorAll(
@@ -528,8 +627,36 @@
       );
 
       for (const cand of candidates) {
+        if (cand.getAttribute('data-omega-seen') === 'true') continue;
+
         const parent = cand.closest('div[class*="container"], [data-e2e-locator="submission-result"], div') || cand;
-        const fullResultText = parent.innerText || parent.textContent || '';
+        const fullResultText = (parent.innerText || parent.textContent || '').trim();
+        if (!fullResultText) continue;
+
+        // Check if still judging / pending
+        const isJudging = /Pending|Judging|Running/i.test(fullResultText);
+        if (isJudging) {
+          // Still evaluating; wait for verdict
+          return;
+        }
+
+        // Check for failure verdicts
+        const isFailure =
+          /Wrong Answer|Time Limit Exceeded|Memory Limit Exceeded|Runtime Error|Compile Error|Output Limit Exceeded/i.test(
+            fullResultText
+          );
+        if (isFailure) {
+          console.log(`[Omega LeetCode DOM] Detected submission failure: "${fullResultText.slice(0, 40)}...". Resetting intent.`);
+          parent.setAttribute('data-omega-seen', 'true');
+          cand.setAttribute('data-omega-seen', 'true');
+          consumeSubmissionIntent();
+          return;
+        }
+
+        const isRunCodeOnly =
+          /Run Code Result|Testcase [0-9]|Test Result/i.test(fullResultText) &&
+          !/Accepted/i.test(fullResultText) &&
+          !/Beats/i.test(fullResultText);
 
         const hasAccepted =
           /Accepted/i.test(fullResultText) &&
@@ -540,15 +667,6 @@
             fullResultText.includes('Submission') ||
             parent.matches?.('[data-e2e-locator="submission-result"]') ||
             parent.querySelector?.('[data-e2e-locator="submission-result"]'));
-
-        const isFailure =
-          /Wrong Answer|Time Limit Exceeded|Memory Limit Exceeded|Runtime Error|Compile Error|Output Limit Exceeded/i.test(
-            fullResultText
-          );
-        const isRunCodeOnly =
-          /Run Code Result|Testcase [0-9]|Test Result/i.test(fullResultText) &&
-          !/Accepted/i.test(fullResultText) &&
-          !/Beats/i.test(fullResultText);
 
         if (hasAccepted && !isFailure && !isRunCodeOnly) {
           const details = getProblemDetails();
@@ -568,13 +686,17 @@
           const uniqueKey = `leetcode-${details.slug}-${submissionId || metricsHash}`;
 
           if (isSubmissionAlreadyHandled(uniqueKey)) {
-            continue;
+            parent.setAttribute('data-omega-seen', 'true');
+            cand.setAttribute('data-omega-seen', 'true');
+            return;
           }
 
+          parent.setAttribute('data-omega-seen', 'true');
+          cand.setAttribute('data-omega-seen', 'true');
           markSubmissionAsHandled(uniqueKey);
           consumeSubmissionIntent();
 
-          console.log('[Omega] Detected fresh LeetCode Accepted Submission (Active Check):', details);
+          console.log('[Omega] Detected fresh LeetCode Accepted Submission (DOM Check):', details);
           triggerSubmissionModal(details);
           return;
         }
@@ -583,14 +705,31 @@
 
     const observer = new MutationObserver((mutations) => {
       if (isModalOpen) return;
+      if (!isSubmitIntentArmed()) return;
+      if (Date.now() - lastSubmitIntentTime < MIN_JUDGING_DELAY_MS) return;
 
       for (const mutation of mutations) {
         for (const node of mutation.addedNodes) {
           if (node.nodeType !== Node.ELEMENT_NODE) continue;
           const el = node;
+          if (el.getAttribute?.('data-omega-seen') === 'true') continue;
+
+          const text = (el.textContent || '').trim();
+          if (!text) continue;
+
+          // Check failure
+          const isFailure =
+            /Wrong Answer|Time Limit Exceeded|Memory Limit Exceeded|Runtime Error|Compile Error|Output Limit Exceeded/i.test(
+              text
+            );
+          if (isFailure) {
+            console.log(`[Omega LeetCode DOM Mutation] Submission failed (${text.slice(0, 35)}). Resetting intent.`);
+            el.setAttribute?.('data-omega-seen', 'true');
+            consumeSubmissionIntent();
+            return;
+          }
 
           // Check if newly added element or its text contains "Accepted"
-          const text = el.textContent || '';
           const hasAccepted =
             text.includes('Accepted') &&
             (text.includes('Runtime') ||
@@ -606,29 +745,14 @@
 
           if (hasAccepted) {
             const fullResultText = el.innerText || el.textContent || '';
-
-            // Verify it is NOT an error, failure, or partial Run Code testcase
-            const isFailure =
-              /Wrong Answer|Time Limit Exceeded|Memory Limit Exceeded|Runtime Error|Compile Error|Output Limit Exceeded/i.test(
-                fullResultText
-              );
             const isRunCodeOnly =
               /Run Code Result|Testcase [0-9]|Test Result/i.test(fullResultText) &&
               !/Accepted/i.test(fullResultText) &&
               !/Beats/i.test(fullResultText);
 
-            if (!isFailure && !isRunCodeOnly && /Accepted/i.test(fullResultText)) {
-              // 1. Submit Button Intent Check: Ignore if no active submission intent was triggered
-              if (!isSubmitIntentArmed()) {
-                console.log(
-                  '[Omega] Ignoring LeetCode "Accepted" element because no recent Submit button click or submission request occurred (e.g. page reload).'
-                );
-                continue;
-              }
-
+            if (!isRunCodeOnly && /Accepted/i.test(fullResultText)) {
               const details = getProblemDetails();
 
-              // Extract submission ID if present in DOM or URL
               let submissionId = '';
               const subLink = el.querySelector?.('a[href*="/submissions/detail/"]');
               if (subLink) {
@@ -640,22 +764,21 @@
                 if (urlMatch) submissionId = urlMatch[1];
               }
 
-              // Build persistent unique key using problem slug + submission ID or hash of result metrics
               const metricsHash = hashString(fullResultText.replace(/\s+/g, ' '));
               const uniqueKey = `leetcode-${details.slug}-${submissionId || metricsHash}`;
 
-              // 2. Persistent Deduplication Check
               if (isSubmissionAlreadyHandled(uniqueKey)) {
-                console.log(`[Omega] Submission "${uniqueKey}" was already handled. Skipping modal trigger.`);
+                el.setAttribute?.('data-omega-seen', 'true');
                 continue;
               }
 
-              // Mark as handled in persistent storage and consume intent
+              el.setAttribute?.('data-omega-seen', 'true');
               markSubmissionAsHandled(uniqueKey);
               consumeSubmissionIntent();
 
-              console.log('[Omega] Detected fresh LeetCode Accepted Submission (All Testcases Passed):', details);
+              console.log('[Omega] Detected fresh LeetCode Accepted Submission (DOM Mutation):', details);
               triggerSubmissionModal(details);
+              return;
             }
           }
         }
@@ -673,30 +796,46 @@
     const checkGFGSubmissions = () => {
       if (isModalOpen) return;
       if (!isSubmitIntentArmed()) return;
+      if (Date.now() - lastSubmitIntentTime < MIN_JUDGING_DELAY_MS) return;
 
       const successElements = document.querySelectorAll(
         '.problems_header_content, [class*="problemSolved"], [class*="successBanner"], div.solvedProblem, div[class*="submission_content"]'
       );
       for (const el of successElements) {
-        const text = el.innerText || el.textContent || '';
+        if (el.getAttribute('data-omega-seen') === 'true') continue;
+
+        const text = (el.innerText || el.textContent || '').trim();
+        if (!text) continue;
+
+        const isGFGFailure = /Compilation Error|Wrong Answer|Time Limit Exceeded|Failed Test Cases|Runtime Error/i.test(text);
+        if (isGFGFailure) {
+          console.log(`[Omega GFG DOM] Detected submission failure: "${text.slice(0, 35)}". Resetting intent.`);
+          el.setAttribute('data-omega-seen', 'true');
+          consumeSubmissionIntent();
+          return;
+        }
+
         const isGFGSuccess =
           text.includes('Problem Solved Successfully') ||
           text.includes('Correct Answer') ||
           text.includes('All Test Cases Passed') ||
           /Test Cases Passed:\s*(\d+)\s*\/\s*\1/i.test(text);
-        const isGFGFailure = /Compilation Error|Wrong Answer|Time Limit Exceeded|Failed Test Cases|Runtime Error/i.test(text);
 
-        if (isGFGSuccess && !isGFGFailure) {
+        if (isGFGSuccess) {
           const details = getProblemDetails();
           const resultHash = hashString(text.replace(/\s+/g, ' '));
           const uniqueKey = `gfg-${details.slug}-${resultHash}`;
 
-          if (isSubmissionAlreadyHandled(uniqueKey)) continue;
+          if (isSubmissionAlreadyHandled(uniqueKey)) {
+            el.setAttribute('data-omega-seen', 'true');
+            continue;
+          }
 
+          el.setAttribute('data-omega-seen', 'true');
           markSubmissionAsHandled(uniqueKey);
           consumeSubmissionIntent();
 
-          console.log('[Omega] Detected fresh GeeksforGeeks Successful Submission (Active Check):', details);
+          console.log('[Omega] Detected fresh GeeksforGeeks Successful Submission (DOM Check):', details);
           triggerSubmissionModal(details);
           return;
         }
@@ -705,14 +844,29 @@
 
     const observer = new MutationObserver((mutations) => {
       if (isModalOpen) return;
+      if (!isSubmitIntentArmed()) return;
+      if (Date.now() - lastSubmitIntentTime < MIN_JUDGING_DELAY_MS) return;
 
       for (const mutation of mutations) {
         for (const node of mutation.addedNodes) {
           if (node.nodeType !== Node.ELEMENT_NODE) continue;
           const el = node;
-          const text = el.innerText || el.textContent || '';
+          if (el.getAttribute?.('data-omega-seen') === 'true') continue;
 
-          // GFG displays: "Problem Solved Successfully", "Correct Answer", "All Test Cases Passed", or "Test Cases Passed: X / X"
+          const text = (el.innerText || el.textContent || '').trim();
+          if (!text) continue;
+
+          const isGFGFailure =
+            /Compilation Error|Wrong Answer|Time Limit Exceeded|Failed Test Cases|Runtime Error/i.test(
+              text
+            );
+          if (isGFGFailure) {
+            console.log(`[Omega GFG Mutation] Submission failed (${text.slice(0, 35)}). Resetting intent.`);
+            el.setAttribute?.('data-omega-seen', 'true');
+            consumeSubmissionIntent();
+            return;
+          }
+
           const isGFGSuccess =
             text.includes('Problem Solved Successfully') ||
             text.includes('Correct Answer') ||
@@ -720,35 +874,23 @@
             /Test Cases Passed:\s*(\d+)\s*\/\s*\1/i.test(text) ||
             (text.includes('Points Scored') && text.includes('Accuracy'));
 
-          const isGFGFailure =
-            /Compilation Error|Wrong Answer|Time Limit Exceeded|Failed Test Cases|Runtime Error/i.test(
-              text
-            );
-
-          if (isGFGSuccess && !isGFGFailure) {
-            // 1. Submit Button Intent Check
-            if (!isSubmitIntentArmed()) {
-              console.log(
-                '[Omega] Ignoring GeeksforGeeks success banner because no recent Submit button click occurred (e.g. page reload).'
-              );
-              continue;
-            }
-
+          if (isGFGSuccess) {
             const details = getProblemDetails();
             const resultHash = hashString(text.replace(/\s+/g, ' '));
             const uniqueKey = `gfg-${details.slug}-${resultHash}`;
 
-            // 2. Persistent Deduplication Check
             if (isSubmissionAlreadyHandled(uniqueKey)) {
-              console.log(`[Omega] GeeksforGeeks submission "${uniqueKey}" was already handled. Skipping.`);
+              el.setAttribute?.('data-omega-seen', 'true');
               continue;
             }
 
+            el.setAttribute?.('data-omega-seen', 'true');
             markSubmissionAsHandled(uniqueKey);
             consumeSubmissionIntent();
 
-            console.log('[Omega] Detected fresh GeeksforGeeks Successful Submission:', details);
+            console.log('[Omega] Detected fresh GeeksforGeeks Successful Submission (DOM Mutation):', details);
             triggerSubmissionModal(details);
+            return;
           }
         }
       }
@@ -762,26 +904,39 @@
   function observeCodeforcesSubmissions() {
     if (!isCodeforces) return;
 
-    // Check status table or submission result banners
     const checkVerdictElements = () => {
       if (isModalOpen) return;
-
-      // Only check if submit intent is armed!
       if (!isSubmitIntentArmed()) return;
+      if (Date.now() - lastSubmitIntentTime < MIN_JUDGING_DELAY_MS) return;
 
       const verdictElements = document.querySelectorAll(
         'span.verdict-accepted, span.verdict-green, td.status-verdict-cell span, td.status-cell span'
       );
 
       for (const el of verdictElements) {
+        if (el.getAttribute('data-omega-seen') === 'true') continue;
+
         const text = (el.innerText || el.textContent || '').trim();
+        if (!text) continue;
+
+        // Check if in queue / running
+        if (/In queue|Running on test/i.test(text)) {
+          return; // Still judging
+        }
+
+        // Check failure
+        if (/Wrong answer|Time limit exceeded|Memory limit exceeded|Runtime error|Compilation error/i.test(text)) {
+          console.log(`[Omega Codeforces] Detected failure (${text}). Resetting intent.`);
+          el.setAttribute('data-omega-seen', 'true');
+          consumeSubmissionIntent();
+          return;
+        }
 
         // Must be strictly Accepted
-        if (text === 'Accepted' || el.classList.contains('verdict-accepted')) {
+        if (text === 'Accepted' || text === 'OK' || el.classList.contains('verdict-accepted')) {
           const row = el.closest('tr');
           const details = getProblemDetails();
 
-          // If on status/submission page, attempt to read problem title from the row
           let subId = '';
           if (row) {
             subId =
@@ -802,11 +957,12 @@
 
           const uniqueKey = `codeforces-${details.slug}-${subId || hashString(row?.textContent || text)}`;
 
-          // Persistent Deduplication Check
           if (isSubmissionAlreadyHandled(uniqueKey)) {
+            el.setAttribute('data-omega-seen', 'true');
             continue;
           }
 
+          el.setAttribute('data-omega-seen', 'true');
           markSubmissionAsHandled(uniqueKey);
           consumeSubmissionIntent();
 
@@ -822,7 +978,6 @@
     });
 
     observer.observe(document.body, { childList: true, subtree: true });
-    // Periodic check for status updates when submit intent is armed
     setInterval(checkVerdictElements, 2000);
   }
 
@@ -1195,14 +1350,23 @@
       };
 
       // UI celebration and cleanup
-      const showSuccessAndClose = () => {
+      const showSuccessAndClose = (data) => {
+        const xpEarned = data?.xpEarned || (isRevision ? 15 : 30);
+        const aiTip = data?.aiAnalysis ? `<div class="omega-ai-tip"><strong>AI Coach:</strong> ${escapeHtml(data.aiAnalysis)}</div>` : '';
+
         modalBox.innerHTML = `
           <div class="omega-success-view">
             <div class="omega-success-icon">✓</div>
-            <h3 class="omega-success-title">${isRevision ? 'Revision Logged Successfully' : 'Reflection Logged & Synced'}</h3>
+            <h3 class="omega-success-title">${isRevision ? 'Revision Synced with Cloud' : 'Reflection Stored in Database'}</h3>
             <p class="omega-success-sub">
-              ${isRevision ? 'Revision progress updated and scheduled for next interval.' : 'Great job! Heatmap updated and spaced revision scheduled.'}
+              ${isRevision ? 'Spaced repetition schedule updated in Firestore database.' : 'Progress saved directly to your cloud dashboard & heatmap.'}
             </p>
+            <div class="omega-badge-row" style="margin-top: 10px; display: flex; gap: 8px; justify-content: center; font-size: 13px; font-weight: 600; color: #10b981;">
+              <span>+${xpEarned} XP Earned</span>
+              <span>•</span>
+              <span>Database Updated</span>
+            </div>
+            ${aiTip}
           </div>
         `;
 
@@ -1212,7 +1376,21 @@
           document.body.style.overflow = originalBodyOverflow;
           document.documentElement.style.overflow = originalHtmlOverflow;
           isModalOpen = false;
-        }, 1100);
+        }, 1600);
+      };
+
+      const showErrorAlert = (errMsg) => {
+        submitBtn.disabled = false;
+        submitBtn.innerHTML = `<span>Retry Storing Reflection</span>`;
+        
+        let errBanner = modalBox.querySelector('.omega-error-alert');
+        if (!errBanner) {
+          errBanner = document.createElement('div');
+          errBanner.className = 'omega-error-alert';
+          errBanner.style.cssText = 'background: rgba(239, 68, 68, 0.15); border: 1px solid rgba(239, 68, 68, 0.4); color: #f87171; border-radius: 8px; padding: 10px 12px; margin-bottom: 12px; font-size: 13px; line-height: 1.4;';
+          modalBox.insertBefore(errBanner, modalBox.querySelector('.omega-footer'));
+        }
+        errBanner.innerHTML = `<strong>Sync Notice:</strong> ${escapeHtml(errMsg || 'Failed to update database. Please verify your connection.')}`;
       };
 
       // Fallback local save function in case service worker is asleep or reloaded
@@ -1220,10 +1398,11 @@
         try {
           if (typeof chrome !== 'undefined' && chrome.storage?.local) {
             chrome.storage.local.get(
-              ['omega_logs', 'omega_daily_counts', 'omega_streak', 'omega_app_url', 'omega_user'],
+              ['omega_logs', 'omega_daily_counts', 'omega_streak', 'omega_app_url', 'omega_user', 'omega_token'],
               (res) => {
                 if (!res) return;
                 const user = res.omega_user || null;
+                const token = res.omega_token || null;
                 if (user) {
                   if (user.uid) reflectionLog.userId = user.uid;
                   if (user.email) reflectionLog.userEmail = user.email;
@@ -1242,10 +1421,14 @@
                 });
 
                 // Direct POST to server if online
-                const appUrl = (res.omega_app_url || 'https://ais-dev-xe62wcz6ciunnsbrgansz7-15217695281.asia-east1.run.app').replace(/\/+$/, '');
-                fetch(`${appUrl}/api/extension/log`, {
+                const appUrl = (res.omega_app_url || 'https://omega-dsa.ai.studio').replace(/\/+$/, '');
+                const targetEndpoint = token ? `${appUrl}/api/extension/secure/log` : `${appUrl}/api/extension/log`;
+                const headers = { 'Content-Type': 'application/json' };
+                if (token) headers['Authorization'] = `Bearer ${token}`;
+
+                fetch(targetEndpoint, {
                   method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
+                  headers,
                   body: JSON.stringify({
                     log: reflectionLog,
                     userId: user ? user.uid : 'guest',
@@ -1261,12 +1444,16 @@
       // Send to background service worker with fallback
       safeSendMessage(
         { type: 'RECORD_LOG', log: reflectionLog },
-        () => {
-          showSuccessAndClose();
+        (resp) => {
+          if (resp && resp.success === false && resp.error) {
+            showErrorAlert(resp.error);
+          } else {
+            showSuccessAndClose(resp);
+          }
         },
         () => {
           performLocalFallbackSave();
-          showSuccessAndClose();
+          showSuccessAndClose({ message: 'Saved locally in extension cache' });
         }
       );
     });

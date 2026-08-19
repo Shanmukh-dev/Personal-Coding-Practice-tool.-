@@ -18,17 +18,38 @@
     return;
   }
 
-  const appUrl = window.location.origin;
+  const CLOUD_APP_URL = 'https://omega-dsa.ai.studio';
 
-  // 1. Immediately store the current web app origin as the Omega Server URL
+  function getSanitizedOrigin() {
+    try {
+      const raw = window.location.origin;
+      if (
+        raw.includes('aistudio.google.com') ||
+        raw === 'https://ai.studio' ||
+        raw === 'http://ai.studio' ||
+        raw.includes('google.com') ||
+        raw.includes('googleusercontent.com')
+      ) {
+        return CLOUD_APP_URL;
+      }
+      return raw;
+    } catch (e) {
+      return CLOUD_APP_URL;
+    }
+  }
+
+  const appUrl = getSanitizedOrigin();
+
+  // 1. Store the valid web app origin as the Omega Server URL if not explicitly configured
   try {
     if (isExtensionContextValid() && chrome.storage && chrome.storage.local) {
-      chrome.storage.local.set({ omega_app_url: appUrl }, () => {
-        if (chrome.runtime.lastError) {
-          // ignore context invalidation silently
-          return;
+      chrome.storage.local.get(['omega_app_url'], (res) => {
+        if (!res?.omega_app_url || res.omega_app_url.includes('aistudio.google.com') || res.omega_app_url === 'https://ai.studio') {
+          chrome.storage.local.set({ omega_app_url: appUrl }, () => {
+            if (chrome.runtime.lastError) return;
+            console.log('[Omega Extension Bridge] Set omega_app_url to:', appUrl);
+          });
         }
-        console.log('[Omega Extension Bridge] Set omega_app_url to:', appUrl);
       });
     }
   } catch (err) {
@@ -69,14 +90,20 @@
       // Handle user auth synchronization from web app
       if (event.data.type === 'OMEGA_SET_AUTH') {
         const user = event.data.user;
+        const token = event.data.token || null;
         const targetAppUrl = event.data.appUrl || appUrl;
 
         if (user && user.uid && isExtensionContextValid() && chrome.storage?.local) {
+          const storePayload = {
+            omega_user: user,
+            omega_app_url: targetAppUrl,
+          };
+          if (token) {
+            storePayload.omega_token = token;
+          }
+
           chrome.storage.local.set(
-            {
-              omega_user: user,
-              omega_app_url: targetAppUrl,
-            },
+            storePayload,
             () => {
               if (chrome.runtime.lastError || !isExtensionContextValid()) return;
               console.log('[Omega Extension Bridge] User authenticated via web app:', user.email || user.displayName);
@@ -85,6 +112,7 @@
                   chrome.runtime.sendMessage({
                     type: 'UPDATE_AUTH_FROM_BRIDGE',
                     user: user,
+                    token: token,
                     appUrl: targetAppUrl,
                   });
                 }
@@ -95,6 +123,7 @@
                 {
                   type: 'OMEGA_EXTENSION_AUTH_SUCCESS',
                   user: user,
+                  hasToken: Boolean(token),
                 },
                 '*'
               );
@@ -103,107 +132,48 @@
         }
       }
 
-      // Handle user stats synchronization from web app (heatmap, streak, today solved, recent logs)
+      // Handle user stats synchronization from web app (authoritative state sync)
       if (event.data.type === 'OMEGA_SET_STATS') {
         const stats = event.data.stats;
         if (stats && typeof stats === 'object' && isExtensionContextValid() && chrome.storage?.local) {
-          chrome.storage.local.get(
-            [
-              'omega_daily_counts',
-              'omega_logs',
-              'omega_streak',
-              'omega_today_count',
-              'omega_monthly_solved',
-              'omega_active_days',
-            ],
-            (currentRes) => {
-              if (chrome.runtime.lastError || !isExtensionContextValid()) return;
+          const incomingCounts = (stats.dailyCounts && typeof stats.dailyCounts === 'object') ? stats.dailyCounts : {};
+          const todayCount = typeof stats.todayCount === 'number' ? stats.todayCount : 0;
+          const streak = typeof stats.streak === 'number' ? stats.streak : 0;
+          const dailyGoal = typeof stats.dailyGoal === 'number' && stats.dailyGoal > 0 ? stats.dailyGoal : 3;
+          const monthlySolved = typeof stats.monthlySolved === 'number' ? stats.monthlySolved : 0;
+          const activeDays = typeof stats.activeDays === 'number' ? stats.activeDays : 0;
+          const recentLogs = Array.isArray(stats.recentLogs) ? stats.recentLogs : [];
 
-              const currentDailyCounts = currentRes?.omega_daily_counts || {};
-              const currentLogs = Array.isArray(currentRes?.omega_logs) ? currentRes.omega_logs : [];
-              const mergedDailyCounts = { ...currentDailyCounts };
+          const payload = {
+            omega_daily_counts: incomingCounts,
+            omega_streak: streak,
+            omega_today_count: todayCount,
+            omega_daily_goal: dailyGoal,
+            omega_logs: recentLogs,
+            omega_monthly_solved: monthlySolved,
+            omega_active_days: activeDays,
+            omega_last_stats_sync: Date.now(),
+          };
 
-              if (stats.dailyCounts && typeof stats.dailyCounts === 'object') {
-                Object.entries(stats.dailyCounts).forEach(([k, v]) => {
-                  if (typeof v === 'number') {
-                    mergedDailyCounts[k] = Math.max(mergedDailyCounts[k] || 0, v);
-                  }
+          chrome.storage.local.set(payload, () => {
+            if (chrome.runtime.lastError || !isExtensionContextValid()) return;
+            try {
+              if (isExtensionContextValid()) {
+                chrome.runtime.sendMessage({
+                  type: 'UPDATE_STATS_FROM_BRIDGE',
+                  stats: {
+                    todayCount,
+                    streak,
+                    dailyGoal,
+                    dailyCounts: incomingCounts,
+                    recentLogs,
+                    monthlySolved,
+                    activeDays,
+                  },
                 });
               }
-
-              // Also count any logs stored in local logs list
-              currentLogs.forEach((l) => {
-                if (l && l.timestamp) {
-                  const d = new Date(l.timestamp);
-                  const lKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-                  mergedDailyCounts[lKey] = Math.max(mergedDailyCounts[lKey] || 0, 1);
-                }
-              });
-
-              // Merge logs preserving existing extension logs
-              const incomingLogs = Array.isArray(stats.recentLogs) ? stats.recentLogs : [];
-              const logMap = new Map();
-              currentLogs.forEach((l) => { if (l && l.id) logMap.set(l.id, l); });
-              incomingLogs.forEach((l) => { if (l && l.id) logMap.set(l.id, l); });
-              const mergedLogs = Array.from(logMap.values())
-                .sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0))
-                .slice(0, 30);
-
-              const now = new Date();
-              const todayKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
-              const todayLogsCount = currentLogs.filter((l) => {
-                if (!l || !l.timestamp) return false;
-                const d = new Date(l.timestamp);
-                const lKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-                return lKey === todayKey;
-              }).length;
-
-              const todayCount = Math.max(
-                currentRes?.omega_today_count || 0,
-                mergedDailyCounts[todayKey] || 0,
-                typeof stats.todayCount === 'number' ? stats.todayCount : 0,
-                todayLogsCount
-              );
-              mergedDailyCounts[todayKey] = todayCount;
-
-              const streak = Math.max(
-                currentRes?.omega_streak || 0,
-                typeof stats.streak === 'number' ? stats.streak : 0,
-                todayCount > 0 ? 1 : 0
-              );
-
-              const payload = {
-                omega_daily_counts: mergedDailyCounts,
-                omega_streak: streak,
-                omega_today_count: todayCount,
-                omega_daily_goal: stats.dailyGoal || 3,
-                omega_logs: mergedLogs,
-                omega_monthly_solved: Math.max(currentRes?.omega_monthly_solved || 0, stats.monthlySolved || 0),
-                omega_active_days: Math.max(currentRes?.omega_active_days || 0, stats.activeDays || 0),
-                omega_last_stats_sync: Date.now(),
-              };
-
-              chrome.storage.local.set(payload, () => {
-                if (chrome.runtime.lastError || !isExtensionContextValid()) return;
-                try {
-                  if (isExtensionContextValid()) {
-                    chrome.runtime.sendMessage({
-                      type: 'UPDATE_STATS_FROM_BRIDGE',
-                      stats: {
-                        todayCount,
-                        streak,
-                        dailyGoal: stats.dailyGoal || 3,
-                        dailyCounts: mergedDailyCounts,
-                        recentLogs: mergedLogs,
-                        monthlySolved: payload.omega_monthly_solved,
-                        activeDays: payload.omega_active_days,
-                      },
-                    });
-                  }
-                } catch (e) {}
-              });
-            }
-          );
+            } catch (e) {}
+          });
         }
       }
 

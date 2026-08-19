@@ -603,6 +603,19 @@ input:checked + .slider:before {
   padding: 1px 5px;
   border-radius: 4px;
   font-weight: 600;
+  transition: all 0.2s ease;
+}
+
+.cloud-pill.syncing {
+  color: #60a5fa;
+  background: rgba(59, 130, 246, 0.12);
+  border-color: rgba(59, 130, 246, 0.25);
+}
+
+.cloud-pill.offline {
+  color: #fbbf24;
+  background: rgba(245, 158, 11, 0.12);
+  border-color: rgba(245, 158, 11, 0.25);
 }
 
 .cloud-dot {
@@ -611,6 +624,63 @@ input:checked + .slider:before {
   border-radius: 50%;
   background-color: #10b981;
   box-shadow: 0 0 4px #10b981;
+  transition: all 0.2s ease;
+}
+
+.cloud-dot.syncing {
+  background-color: #3b82f6;
+  box-shadow: 0 0 4px #3b82f6;
+  animation: pulse-dot 1s infinite alternate;
+}
+
+.cloud-dot.offline {
+  background-color: #f59e0b;
+  box-shadow: 0 0 4px #f59e0b;
+}
+
+@keyframes pulse-dot {
+  0% { opacity: 0.4; }
+  100% { opacity: 1; }
+}
+
+.sync-meta-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 8px;
+  padding-top: 6px;
+  border-top: 1px dashed #27272a;
+  font-size: 10px;
+  font-family: ui-monospace, SFMono-Regular, monospace;
+}
+
+.sync-meta-left {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: #71717a;
+}
+
+.sync-meta-icon {
+  font-size: 9px;
+}
+
+.sync-meta-label {
+  color: #71717a;
+}
+
+.sync-meta-time {
+  color: #d4d4d8;
+  font-weight: 600;
+}
+
+.sync-mode-tag {
+  font-size: 9px;
+  color: #a1a1aa;
+  background: #18181b;
+  border: 1px solid #27272a;
+  padding: 1px 5px;
+  border-radius: 4px;
 }
 
 .user-email {

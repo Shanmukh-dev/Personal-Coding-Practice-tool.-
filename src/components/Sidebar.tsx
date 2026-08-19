@@ -30,6 +30,7 @@ import { UserProfile, UserGamification } from '../types';
 import { useTheme } from '../context/ThemeContext';
 import { getProfileAvatarUrl } from '../utils/avatar';
 import { Logo } from './Logo';
+import { SyncStatusWidget } from './SyncStatusWidget';
 
 interface SidebarProps {
   userProfile: UserProfile | null;
@@ -45,6 +46,10 @@ interface SidebarProps {
   queueProgressText?: string;
   isCollapsed?: boolean;
   onToggleCollapse?: () => void;
+  lastSyncTime?: number | null;
+  isSyncing?: boolean;
+  isExtensionDetected?: boolean;
+  onManualSync?: () => void;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
@@ -55,10 +60,16 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onOpenAuth,
   onSignOut,
   onOpenOnboarding,
+  onOpenExtensionPair,
+  onOpenDownloadExtension,
   dueRevisionsCount = 0,
   queueProgressText,
   isCollapsed: propIsCollapsed,
   onToggleCollapse,
+  lastSyncTime = null,
+  isSyncing = false,
+  isExtensionDetected = false,
+  onManualSync = () => {},
 }) => {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [internalCollapsed, setInternalCollapsed] = useState(false);
@@ -319,7 +330,21 @@ export const Sidebar: React.FC<SidebarProps> = ({
         </div>
 
         {/* Bottom Profile Footer */}
-        <div className="p-2 border-t border-zinc-800/80 bg-zinc-950/60 shrink-0">
+        <div className="p-2 border-t border-zinc-800/80 bg-zinc-950/60 shrink-0 space-y-2">
+          {!isCollapsed && (
+            <div className="px-1">
+              <SyncStatusWidget
+                lastSyncTime={lastSyncTime}
+                isSyncing={isSyncing}
+                isExtensionDetected={isExtensionDetected}
+                onManualSync={onManualSync}
+                onOpenPairModal={onOpenExtensionPair || (() => {})}
+                currentUser={userProfile}
+                compact={true}
+              />
+            </div>
+          )}
+
           {userProfile ? (
             !isCollapsed ? (
               <div className="p-2 rounded-xl bg-zinc-900/60 border border-zinc-800/80 flex items-center justify-between gap-2">

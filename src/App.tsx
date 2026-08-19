@@ -110,6 +110,11 @@ export default function App() {
   const [reflectionProblem, setReflectionProblem] = useState<Problem | null>(null);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState<boolean>(false);
 
+  // Live Extension & Cloud Sync Status State
+  const [lastSyncTime, setLastSyncTime] = useState<number | null>(Date.now());
+  const [isSyncing, setIsSyncing] = useState<boolean>(false);
+  const [isExtensionDetected, setIsExtensionDetected] = useState<boolean>(false);
+
   // Auto-open extension pair modal if query parameter ?ext_pair=1 or ?pair=1 exists
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -183,6 +188,33 @@ export default function App() {
   useEffect(() => { mistakesRef.current = mistakes; }, [mistakes]);
   useEffect(() => { memoriesRef.current = memories; }, [memories]);
 
+  const [extensionJwtToken, setExtensionJwtToken] = useState<string | null>(null);
+
+  // Fetch secure JWT token for active user
+  useEffect(() => {
+    if (currentUser?.uid) {
+      fetch('/api/extension/auth/token', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          uid: currentUser.uid,
+          email: currentUser.email,
+          displayName: currentUser.displayName,
+          photoURL: currentUser.photoURL,
+        }),
+      })
+        .then((res) => res.json())
+        .then((data) => {
+          if (data && data.success && data.token) {
+            setExtensionJwtToken(data.token);
+          }
+        })
+        .catch(() => {});
+    } else {
+      setExtensionJwtToken(null);
+    }
+  }, [currentUser]);
+
   // Broadcast auth state & user activity stats to Chrome Extension
   useEffect(() => {
     const broadcastToExtension = () => {
@@ -197,6 +229,7 @@ export default function App() {
                 displayName: currentUser.displayName,
                 photoURL: currentUser.photoURL,
               },
+              token: extensionJwtToken,
               appUrl: window.location.origin,
             },
             '*'
@@ -303,7 +336,13 @@ export default function App() {
               userEmail: currentUser?.email,
               stats: statsPayload,
             }),
-          }).catch(() => {});
+          })
+            .then(() => {
+              setLastSyncTime(Date.now());
+            })
+            .catch(() => {});
+        } else {
+          setLastSyncTime(Date.now());
         }
       } catch (err) {
         console.warn('Extension bridge broadcast error:', err);
@@ -311,13 +350,30 @@ export default function App() {
     };
 
     broadcastToExtension();
-    const syncInterval = setInterval(broadcastToExtension, 8000);
+    // Ping for extension presence
+    window.postMessage({ type: 'OMEGA_PING_EXTENSION' }, '*');
+
+    const syncInterval = setInterval(() => {
+      broadcastToExtension();
+      window.postMessage({ type: 'OMEGA_PING_EXTENSION' }, '*');
+    }, 8000);
 
     const handleExtensionMessages = (event: MessageEvent) => {
       if (!event.data || typeof event.data !== 'object') return;
-      if (event.data.type === 'OMEGA_PING_EXTENSION' || event.data.type === 'OMEGA_EXTENSION_INSTALLED') {
-        broadcastToExtension();
+      if (
+        event.data.type === 'OMEGA_PING_EXTENSION' ||
+        event.data.type === 'OMEGA_EXTENSION_INSTALLED' ||
+        event.data.type === 'OMEGA_PONG_EXTENSION' ||
+        event.data.type === 'OMEGA_EXTENSION_AUTH_SUCCESS'
+      ) {
+        setIsExtensionDetected(true);
+        setLastSyncTime(Date.now());
+        if (event.data.type === 'OMEGA_PING_EXTENSION' || event.data.type === 'OMEGA_EXTENSION_INSTALLED') {
+          broadcastToExtension();
+        }
       } else if (event.data.type === 'OMEGA_EXTENSION_LOG_RECEIVED' && event.data.log) {
+        setIsExtensionDetected(true);
+        setLastSyncTime(Date.now());
         ingestExtensionLog(event.data.log);
       }
     };
@@ -327,7 +383,42 @@ export default function App() {
       clearInterval(syncInterval);
       window.removeEventListener('message', handleExtensionMessages);
     };
-  }, [currentUser, solvingRecords, reflections, dailyQueue, gamification, userProfile]);
+  }, [currentUser, extensionJwtToken, solvingRecords, reflections, dailyQueue, gamification, userProfile]);
+
+  // Trigger immediate manual sync across extension & cloud
+  const handleManualSync = async () => {
+    setIsSyncing(true);
+    try {
+      // 1. Broadcast stats & auth to extension bridge
+      const uid = currentUser?.uid || 'guest';
+      const email = currentUser?.email || '';
+
+      window.postMessage({ type: 'OMEGA_PING_EXTENSION' }, '*');
+
+      // 2. Fetch pending logs from cloud
+      const query = new URLSearchParams();
+      if (uid && uid !== 'guest') query.set('userId', uid);
+      if (email) query.set('userEmail', email);
+
+      const res = await fetch(`/api/extension/pending-logs?${query.toString()}`);
+      if (res.ok) {
+        const data = await res.json();
+        if (Array.isArray(data.logs) && data.logs.length > 0) {
+          for (const item of data.logs) {
+            if (item && item.log) {
+              await ingestExtensionLog(item.log);
+            }
+          }
+        }
+      }
+
+      setLastSyncTime(Date.now());
+    } catch (e) {
+      console.warn('Manual sync warning:', e);
+    } finally {
+      setTimeout(() => setIsSyncing(false), 500);
+    }
+  };
 
   // Track processed extension log IDs to prevent duplicate additions
   const processedLogIdsRef = React.useRef<Set<string>>(new Set());
@@ -1530,10 +1621,16 @@ export default function App() {
         onOpenAuth={() => setIsAuthOpen(true)}
         onSignOut={handleSignOut}
         onOpenOnboarding={() => setIsOnboardingOpen(true)}
+        onOpenExtensionPair={() => setIsExtensionPairModalOpen(true)}
+        onOpenDownloadExtension={() => setIsDownloadExtensionModalOpen(true)}
         dueRevisionsCount={dueRevisions}
         queueProgressText={queueProgressText}
         isCollapsed={isSidebarCollapsed}
         onToggleCollapse={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
+        lastSyncTime={lastSyncTime}
+        isSyncing={isSyncing}
+        isExtensionDetected={isExtensionDetected}
+        onManualSync={handleManualSync}
       />
 
       <div className={`flex-1 min-w-0 transition-all duration-300 ease-in-out flex flex-col min-h-screen ${
@@ -1550,6 +1647,11 @@ export default function App() {
               gamification={gamification}
               solvingRecords={solvingRecords}
               reflections={reflections}
+              lastSyncTime={lastSyncTime}
+              isSyncing={isSyncing}
+              isExtensionDetected={isExtensionDetected}
+              onManualSync={handleManualSync}
+              onOpenPairModal={() => setIsExtensionPairModalOpen(true)}
               onNavigateTab={setActiveTab}
               onSolveProblem={handleSolveProblem}
               onOpenOnboarding={() => setIsOnboardingOpen(true)}
