@@ -7,22 +7,22 @@
     --font-body: 'Geist', 'Inter', sans-serif;
     --font-mono: 'JetBrains Mono', monospace;
 
-    /* Base Obsidian Slate (Dark Mode Default) */
-    --surface-bg: #0b1326;
-    --surface-dim: #0b1326;
-    --surface-bright: #31394d;
-    --surface-container-lowest: #060e20;
-    --surface-container-low: #131b2e;
-    --surface-container: #171f33;
-    --surface-container-high: #222a3d;
-    --surface-container-highest: #2d3449;
-    --on-surface: #dae2fd;
-    --on-surface-variant: #c5c6cb;
-    --border-color: #334155;
-    --text-primary: #dae2fd;
-    --text-secondary: #c5c6cb;
-    --text-muted: #8e9195;
-    --accent-primary: #e2e8f0;
+    /* Main Dark Mode (Extension Pitch Theme) */
+    --surface-bg: #09090b;
+    --surface-dim: #09090b;
+    --surface-bright: #27272a;
+    --surface-container-lowest: #050507;
+    --surface-container-low: #0e0e11;
+    --surface-container: #121215;
+    --surface-container-high: #18181b;
+    --surface-container-highest: #27272a;
+    --on-surface: #f4f4f5;
+    --on-surface-variant: #d4d4d8;
+    --border-color: #27272a;
+    --text-primary: #f4f4f5;
+    --text-secondary: #d4d4d8;
+    --text-muted: #a1a1aa;
+    --accent-primary: #3b82f6;
   }
 
   html.light {
@@ -55,22 +55,74 @@
     --font-body: 'Geist', 'Inter', sans-serif;
     --font-mono: 'JetBrains Mono', monospace;
 
-    /* Obsidian Slate (Dark Mode) Palette */
+    /* Main Dark Theme (Matching extension/popup.css) */
+    --surface-bg: #09090b;
+    --surface-dim: #09090b;
+    --surface-bright: #27272a;
+    --surface-container-lowest: #050507;
+    --surface-container-low: #0e0e11;
+    --surface-container: #121215;
+    --surface-container-high: #18181b;
+    --surface-container-highest: #27272a;
+    --on-surface: #f4f4f5;
+    --on-surface-variant: #d4d4d8;
+    --border-color: #27272a;
+    --text-primary: #f4f4f5;
+    --text-secondary: #d4d4d8;
+    --text-muted: #a1a1aa;
+    --accent-primary: #3b82f6;
+  }
+
+  /* Obsidian Slate Theme */
+  html.theme-obsidian-slate {
     --surface-bg: #0b1326;
-    --surface-dim: #0b1326;
-    --surface-bright: #31394d;
-    --surface-container-lowest: #060e20;
-    --surface-container-low: #131b2e;
-    --surface-container: #171f33;
+    --surface-container: #131b2e;
+    --surface-container-low: #0f172a;
     --surface-container-high: #222a3d;
-    --surface-container-highest: #2d3449;
-    --on-surface: #dae2fd;
-    --on-surface-variant: #c5c6cb;
     --border-color: #334155;
     --text-primary: #dae2fd;
     --text-secondary: #c5c6cb;
     --text-muted: #8e9195;
-    --accent-primary: #e2e8f0;
+    --accent-primary: #38bdf8;
+  }
+
+  /* Cyberpunk Matrix Theme */
+  html.theme-cyberpunk-matrix {
+    --surface-bg: #050505;
+    --surface-container: #0d1117;
+    --surface-container-low: #090c10;
+    --surface-container-high: #161b22;
+    --border-color: #21262d;
+    --text-primary: #e6edf3;
+    --text-secondary: #8b949e;
+    --text-muted: #484f58;
+    --accent-primary: #10b981;
+  }
+
+  /* Sunset Crimson Theme */
+  html.theme-sunset-crimson {
+    --surface-bg: #0f0d0e;
+    --surface-container: #1c1417;
+    --surface-container-low: #140d10;
+    --surface-container-high: #291d21;
+    --border-color: #432c34;
+    --text-primary: #fde047;
+    --text-secondary: #fca5a5;
+    --text-muted: #a1a1aa;
+    --accent-primary: #f97316;
+  }
+
+  /* Nordic Frost Theme */
+  html.theme-nordic-frost {
+    --surface-bg: #0f141c;
+    --surface-container: #161f2c;
+    --surface-container-low: #0d121a;
+    --surface-container-high: #1d2a3d;
+    --border-color: #2d3f5c;
+    --text-primary: #e2e8f0;
+    --text-secondary: #94a3b8;
+    --text-muted: #64748b;
+    --accent-primary: #38bdf8;
   }
 
   body {
@@ -124,71 +176,113 @@
   }
 }
 
-/* Light Theme Overrides for Tailwind Zinc Color Classes */
+/* =========================================================================
+   LIGHT THEME (Vellum Technical) OVERRIDES
+   Comprehensive overrides for Tailwind Zinc/Slate classes in light mode
+   ========================================================================= */
+
+html.light,
+html.theme-vellum-technical {
+  color-scheme: light;
+  background-color: #f7f9fb !important;
+  color: #0f172a !important;
+}
+
+/* Background overrides for all Zinc scales and arbitrary opacities */
+html.light [class*="bg-zinc-950"],
 html.light .bg-zinc-950 {
   background-color: #f7f9fb !important;
 }
 
-html.light .bg-zinc-950\/90,
-html.light .bg-zinc-950\/80,
-html.light .bg-zinc-950\/60,
-html.light .bg-zinc-950\/70 {
-  background-color: rgba(247, 249, 251, 0.95) !important;
-}
-
+html.light [class*="bg-zinc-900"],
 html.light .bg-zinc-900 {
   background-color: #ffffff !important;
 }
 
-html.light .bg-zinc-900\/80,
-html.light .bg-zinc-900\/60,
-html.light .bg-zinc-900\/50,
-html.light .bg-zinc-900\/40 {
-  background-color: #f2f4f6 !important;
-}
-
+html.light [class*="bg-zinc-800"],
 html.light .bg-zinc-800 {
-  background-color: #eceef0 !important;
+  background-color: #f1f5f9 !important;
 }
 
-html.light .bg-zinc-800\/80,
-html.light .bg-zinc-800\/60 {
-  background-color: #e6e8ea !important;
+html.light [class*="bg-zinc-700"],
+html.light .bg-zinc-700 {
+  background-color: #e2e8f0 !important;
 }
 
+/* Border overrides */
+html.light [class*="border-zinc-800"],
+html.light [class*="border-zinc-700"],
+html.light [class*="border-zinc-600"],
 html.light .border-zinc-800,
-html.light .border-zinc-800\/80,
-html.light .border-zinc-800\/60,
 html.light .border-zinc-700,
-html.light .border-zinc-700\/80 {
+html.light .border-zinc-600 {
   border-color: #e2e8f0 !important;
 }
 
+/* Text color overrides */
+html.light [class*="text-zinc-100"],
+html.light [class*="text-zinc-200"],
 html.light .text-zinc-100,
 html.light .text-zinc-200 {
-  color: #191c1e !important;
+  color: #0f172a !important;
 }
 
+html.light [class*="text-zinc-300"],
+html.light [class*="text-zinc-400"],
 html.light .text-zinc-300,
 html.light .text-zinc-400 {
-  color: #45464d !important;
+  color: #334155 !important;
 }
 
+html.light [class*="text-zinc-500"],
 html.light .text-zinc-500 {
-  color: #76777d !important;
+  color: #64748b !important;
 }
 
-html.light .hover\:bg-zinc-900\/80:hover,
-html.light .hover\:bg-zinc-800:hover {
-  background-color: #e6e8ea !important;
-}
-
+/* Hover background & border overrides */
+html.light [class*="hover:bg-zinc-800"]:hover,
+html.light [class*="hover:bg-zinc-900"]:hover,
+html.light [class*="hover:bg-zinc-700"]:hover,
+html.light .hover\:bg-zinc-800:hover,
+html.light .hover\:bg-zinc-900:hover,
 html.light .hover\:bg-zinc-700:hover {
-  background-color: #d8dadc !important;
+  background-color: #e2e8f0 !important;
 }
 
+html.light [class*="hover:border-zinc-700"]:hover,
+html.light [class*="hover:border-zinc-600"]:hover,
+html.light .hover\:border-zinc-700:hover {
+  border-color: #cbd5e1 !important;
+}
+
+/* Gradients in Light Mode */
+html.light [class*="from-zinc-900"],
+html.light [class*="from-zinc-950"],
+html.light .from-zinc-900,
+html.light .from-zinc-950 {
+  --tw-gradient-from: #ffffff !important;
+  --tw-gradient-to: rgba(255, 255, 255, 0) !important;
+  --tw-gradient-stops: var(--tw-gradient-from), var(--tw-gradient-to) !important;
+}
+
+html.light [class*="via-zinc-900"],
+html.light [class*="via-zinc-950"],
+html.light .via-zinc-900,
+html.light .via-zinc-950 {
+  --tw-gradient-to: rgba(255, 255, 255, 0) !important;
+  --tw-gradient-stops: var(--tw-gradient-from), #f8fafc, var(--tw-gradient-to) !important;
+}
+
+html.light [class*="to-zinc-950"],
+html.light [class*="to-zinc-900"],
+html.light .to-zinc-950,
+html.light .to-zinc-900 {
+  --tw-gradient-to: #f1f5f9 !important;
+}
+
+/* Slate helpers in light mode */
 html.light .selection\:bg-slate-300\/20 {
-  background-color: rgba(15, 23, 42, 0.15) !important;
+  background-color: rgba(37, 99, 235, 0.15) !important;
 }
 
 html.light .selection\:text-slate-100,
@@ -204,7 +298,7 @@ html.light .text-slate-400 {
 
 html.light .bg-slate-100\/10,
 html.light .bg-slate-100\/20 {
-  background-color: #eceef0 !important;
+  background-color: #f1f5f9 !important;
 }
 
 html.light .border-slate-300\/30,
@@ -212,41 +306,176 @@ html.light .border-slate-300\/20 {
   border-color: #cbd5e1 !important;
 }
 
-/* Dark Mode Overrides for Obsidian Slate Palette */
+/* Sidebar in light mode */
+html.light aside {
+  background-color: #ffffff !important;
+  border-color: #e2e8f0 !important;
+}
+
+html.light aside .bg-zinc-800 {
+  background-color: #e2e8f0 !important;
+  color: #0f172a !important;
+}
+
+html.light aside button:hover {
+  color: #0f172a !important;
+}
+
+/* Dark Mode Overrides for Extension Pitch Palette (Main Dark) */
 html.dark .bg-zinc-950 {
-  background-color: #0b1326 !important;
+  background-color: #09090b !important;
 }
 
 html.dark .bg-zinc-900 {
-  background-color: #131b2e !important;
+  background-color: #121215 !important;
 }
 
 html.dark .bg-zinc-900\/80,
 html.dark .bg-zinc-900\/60 {
-  background-color: #171f33 !important;
+  background-color: rgba(18, 18, 21, 0.8) !important;
 }
 
 html.dark .bg-zinc-800 {
-  background-color: #222a3d !important;
+  background-color: #18181b !important;
 }
 
 html.dark .border-zinc-800,
 html.dark .border-zinc-700 {
-  border-color: #334155 !important;
+  border-color: #27272a !important;
 }
 
 html.dark .text-zinc-100,
 html.dark .text-zinc-200 {
-  color: #dae2fd !important;
+  color: #f4f4f5 !important;
 }
 
 html.dark .text-zinc-300,
 html.dark .text-zinc-400 {
-  color: #c5c6cb !important;
+  color: #d4d4d8 !important;
 }
 
 html.dark .text-zinc-500 {
+  color: #a1a1aa !important;
+}
+
+/* Obsidian Slate Theme Overrides */
+html.theme-obsidian-slate .bg-zinc-950 {
+  background-color: #0b1326 !important;
+}
+html.theme-obsidian-slate .bg-zinc-900 {
+  background-color: #131b2e !important;
+}
+html.theme-obsidian-slate .bg-zinc-900\/80,
+html.theme-obsidian-slate .bg-zinc-900\/60 {
+  background-color: #171f33 !important;
+}
+html.theme-obsidian-slate .bg-zinc-800 {
+  background-color: #222a3d !important;
+}
+html.theme-obsidian-slate .border-zinc-800,
+html.theme-obsidian-slate .border-zinc-700 {
+  border-color: #334155 !important;
+}
+html.theme-obsidian-slate .text-zinc-100,
+html.theme-obsidian-slate .text-zinc-200 {
+  color: #dae2fd !important;
+}
+html.theme-obsidian-slate .text-zinc-300,
+html.theme-obsidian-slate .text-zinc-400 {
+  color: #c5c6cb !important;
+}
+html.theme-obsidian-slate .text-zinc-500 {
   color: #8e9195 !important;
+}
+
+/* Cyberpunk Matrix Theme Overrides */
+html.theme-cyberpunk-matrix .bg-zinc-950 {
+  background-color: #050505 !important;
+}
+html.theme-cyberpunk-matrix .bg-zinc-900 {
+  background-color: #0d1117 !important;
+}
+html.theme-cyberpunk-matrix .bg-zinc-900\/80,
+html.theme-cyberpunk-matrix .bg-zinc-900\/60 {
+  background-color: #121820 !important;
+}
+html.theme-cyberpunk-matrix .bg-zinc-800 {
+  background-color: #161b22 !important;
+}
+html.theme-cyberpunk-matrix .border-zinc-800,
+html.theme-cyberpunk-matrix .border-zinc-700 {
+  border-color: #21262d !important;
+}
+html.theme-cyberpunk-matrix .text-zinc-100,
+html.theme-cyberpunk-matrix .text-zinc-200 {
+  color: #e6edf3 !important;
+}
+html.theme-cyberpunk-matrix .text-zinc-300,
+html.theme-cyberpunk-matrix .text-zinc-400 {
+  color: #8b949e !important;
+}
+html.theme-cyberpunk-matrix .text-zinc-500 {
+  color: #484f58 !important;
+}
+
+/* Sunset Crimson Theme Overrides */
+html.theme-sunset-crimson .bg-zinc-950 {
+  background-color: #0f0d0e !important;
+}
+html.theme-sunset-crimson .bg-zinc-900 {
+  background-color: #1c1417 !important;
+}
+html.theme-sunset-crimson .bg-zinc-900\/80,
+html.theme-sunset-crimson .bg-zinc-900\/60 {
+  background-color: #24191e !important;
+}
+html.theme-sunset-crimson .bg-zinc-800 {
+  background-color: #291d21 !important;
+}
+html.theme-sunset-crimson .border-zinc-800,
+html.theme-sunset-crimson .border-zinc-700 {
+  border-color: #432c34 !important;
+}
+html.theme-sunset-crimson .text-zinc-100,
+html.theme-sunset-crimson .text-zinc-200 {
+  color: #fde047 !important;
+}
+html.theme-sunset-crimson .text-zinc-300,
+html.theme-sunset-crimson .text-zinc-400 {
+  color: #fca5a5 !important;
+}
+html.theme-sunset-crimson .text-zinc-500 {
+  color: #a1a1aa !important;
+}
+
+/* Nordic Frost Theme Overrides */
+html.theme-nordic-frost .bg-zinc-950 {
+  background-color: #0f141c !important;
+}
+html.theme-nordic-frost .bg-zinc-900 {
+  background-color: #161f2c !important;
+}
+html.theme-nordic-frost .bg-zinc-900\/80,
+html.theme-nordic-frost .bg-zinc-900\/60 {
+  background-color: #1a2536 !important;
+}
+html.theme-nordic-frost .bg-zinc-800 {
+  background-color: #1d2a3d !important;
+}
+html.theme-nordic-frost .border-zinc-800,
+html.theme-nordic-frost .border-zinc-700 {
+  border-color: #2d3f5c !important;
+}
+html.theme-nordic-frost .text-zinc-100,
+html.theme-nordic-frost .text-zinc-200 {
+  color: #e2e8f0 !important;
+}
+html.theme-nordic-frost .text-zinc-300,
+html.theme-nordic-frost .text-zinc-400 {
+  color: #94a3b8 !important;
+}
+html.theme-nordic-frost .text-zinc-500 {
+  color: #64748b !important;
 }
 
 /* Custom Scrollbar Utility Classes */

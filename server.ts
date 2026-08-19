@@ -22,6 +22,14 @@ import {
   limit,
 } from 'firebase/firestore';
 import firebaseConfigJson from './firebase-applet-config.json';
+import { Problem, Platform } from './src/types';
+import { DEFAULT_PROBLEM_CATALOG } from './src/data/defaultCatalog';
+import {
+  findMatchingProblem,
+  cleanProblemTitle,
+  canonicalizeProblemUrl,
+  extractPlatformAndSlug,
+} from './src/utils/problemMatcher';
 
 dotenv.config();
 
@@ -295,6 +303,172 @@ async function callGeminiWithRetry<T>(
     }
   }
   return null;
+}
+
+// Platform URL Problem Parser
+async function parseProblemFromUrl(
+  rawUrl: string,
+  suggestedTitle?: string,
+  preferredPlatform?: string
+): Promise<Problem> {
+  const cleanUrl = canonicalizeProblemUrl(rawUrl);
+  const info = extractPlatformAndSlug(cleanUrl);
+  const platform = (preferredPlatform || info.platform) as Platform;
+  const platformProblemId = info.platformProblemId || info.slug || 'problem';
+  const title = cleanProblemTitle(suggestedTitle) || info.slug.replace(/-/g, ' ').replace(/\b\w/g, (l) => l.toUpperCase());
+
+  // Determine canonical problem ID
+  const canonicalId = `${platform.toLowerCase()}-${platformProblemId}`;
+
+  try {
+    const aiRes = await callGeminiWithRetry(async (ai) => {
+      const prompt = `Extract problem title and canonical metadata for this coding problem URL: "${cleanUrl}". Platform inferred: ${platform}. Default title: "${title}".
+Suggest reasonable difficulty (Easy, Medium, Hard), tags, DSA patterns, and estimated solving time in minutes (15, 30, 45, 60).`;
+
+      return await ai.models.generateContent({
+        model: 'gemini-3.6-flash',
+        contents: prompt,
+        config: {
+          responseMimeType: 'application/json',
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+              title: { type: Type.STRING },
+              difficulty: { type: Type.STRING, enum: ['Easy', 'Medium', 'Hard'] },
+              tags: { type: Type.ARRAY, items: { type: Type.STRING } },
+              dsaPatterns: { type: Type.ARRAY, items: { type: Type.STRING } },
+              estimatedSolvingTimeMinutes: { type: Type.NUMBER },
+            },
+            required: ['title', 'difficulty', 'tags', 'dsaPatterns', 'estimatedSolvingTimeMinutes'],
+          },
+        },
+      });
+    });
+
+    if (aiRes && aiRes.text) {
+      const parsed = JSON.parse(aiRes.text || '{}');
+      const finalTitle = cleanProblemTitle(parsed.title || title);
+      return {
+        id: canonicalId,
+        title: finalTitle || title || 'Coding Problem',
+        platform,
+        platformProblemId,
+        url: cleanUrl,
+        difficulty: parsed.difficulty || 'Medium',
+        tags: parsed.tags || [platform],
+        dsaPatterns: parsed.dsaPatterns || ['arrays'],
+        estimatedSolvingTimeMinutes: parsed.estimatedSolvingTimeMinutes || 30,
+        isPremium: false,
+      };
+    }
+  } catch (e) {
+    // Fallback if AI unavailable
+  }
+
+  return {
+    id: canonicalId,
+    title: title || 'Coding Problem',
+    platform,
+    platformProblemId,
+    url: cleanUrl,
+    difficulty: 'Medium',
+    tags: [platform],
+    dsaPatterns: ['arrays'],
+    estimatedSolvingTimeMinutes: 30,
+    isPremium: false,
+  };
+}
+
+// Smart comparison system & Auto "Add Problem by URL" pipeline
+async function smartResolveProblem(queryInput: {
+  title?: string;
+  problemTitle?: string;
+  slug?: string;
+  problemSlug?: string;
+  url?: string;
+  problemUrl?: string;
+  platform?: string;
+  difficulty?: string;
+  feltDifficulty?: string;
+}): Promise<Problem> {
+  const query = {
+    title: queryInput.title || queryInput.problemTitle || '',
+    slug: queryInput.slug || queryInput.problemSlug || '',
+    url: queryInput.url || queryInput.problemUrl || '',
+    platform: queryInput.platform || '',
+  };
+
+  // 1. Gather all catalog problems (default base + Striver sheet)
+  const catalog: Problem[] = [...DEFAULT_PROBLEM_CATALOG];
+
+  // 2. Also fetch custom problems from Firestore
+  try {
+    const snap = await getDocs(collection(firestoreDb, 'problems'));
+    snap.docs.forEach((d) => {
+      const p = d.data() as Problem;
+      if (p && p.id && !catalog.some((c) => c.id === p.id)) {
+        catalog.push(p);
+      }
+    });
+  } catch (e) {}
+
+  // 3. Run smart comparison system against problem catalog (regular and Striver list)
+  const matched = findMatchingProblem(query, catalog);
+  if (matched) {
+    // Ensure document exists in Firestore
+    try {
+      await setDoc(doc(firestoreDb, 'problems', matched.id), matched, { merge: true });
+    } catch {}
+    return matched;
+  }
+
+  // 4. If not found in catalog, automatically trigger "Add problem by URL" process!
+  let targetUrl = query.url;
+  if (!targetUrl && query.slug) {
+    const plat = (query.platform || 'LeetCode').toLowerCase();
+    if (plat === 'leetcode') {
+      targetUrl = `https://leetcode.com/problems/${query.slug}/`;
+    } else if (plat === 'geeksforgeeks') {
+      targetUrl = `https://www.geeksforgeeks.org/problems/${query.slug}/1`;
+    }
+  }
+
+  if (targetUrl) {
+    try {
+      const newProblem = await parseProblemFromUrl(targetUrl, query.title, query.platform);
+      if (newProblem) {
+        try {
+          await setDoc(doc(firestoreDb, 'problems', newProblem.id), newProblem, { merge: true });
+        } catch {}
+        return newProblem;
+      }
+    } catch (e) {
+      console.warn('[Omega Server] Auto-add problem by URL notice:', e);
+    }
+  }
+
+  // 5. Fallback canonical creation
+  const slug = query.slug || cleanProblemTitle(query.title).toLowerCase().replace(/[^a-z0-9]+/g, '-') || 'problem';
+  const platform = (query.platform || 'LeetCode') as Platform;
+  const canonicalId = `${platform.toLowerCase()}-${slug}`;
+  const fallbackProblem: Problem = {
+    id: canonicalId,
+    title: cleanProblemTitle(query.title) || 'Coding Problem',
+    platform: platform,
+    platformProblemId: slug,
+    difficulty: (queryInput.feltDifficulty || queryInput.difficulty || 'Medium') as any,
+    dsaPatterns: ['arrays'],
+    url: targetUrl || `https://leetcode.com/problems/${slug}`,
+    estimatedSolvingTimeMinutes: 30,
+    isPremium: false,
+    tags: [platform],
+  };
+
+  try {
+    await setDoc(doc(firestoreDb, 'problems', canonicalId), fallbackProblem, { merge: true });
+  } catch {}
+
+  return fallbackProblem;
 }
 
 // Healthcheck
@@ -679,25 +853,34 @@ app.post('/api/extension/secure/log', authenticateExtensionJwt, async (req, res)
       });
     }
 
-    const problemTitle = (rawLog.problemTitle || rawLog.title || rawLog.problemSlug || 'Practice Problem').trim();
-    const problemSlug = (rawLog.problemSlug || rawLog.slug || problemTitle.toLowerCase().replace(/[^a-z0-9]+/g, '-')).trim();
-    const platform = rawLog.platform || 'LeetCode';
-    const feltDifficulty = rawLog.feltDifficulty || rawLog.difficulty || 'Medium';
+    // Resolve canonical problem via smart comparison system & automatic URL ingestion
+    const resolvedProblem = await smartResolveProblem({
+      title: rawLog.problemTitle || rawLog.title,
+      slug: rawLog.problemSlug || rawLog.slug,
+      url: rawLog.problemUrl || rawLog.url,
+      platform: rawLog.platform,
+      feltDifficulty: rawLog.feltDifficulty || rawLog.difficulty,
+    });
+
+    const problemId = resolvedProblem.id;
+    const problemTitle = resolvedProblem.title;
+    const problemSlug = resolvedProblem.platformProblemId || resolvedProblem.id;
+    const platform = resolvedProblem.platform;
+    const feltDifficulty = rawLog.feltDifficulty || rawLog.difficulty || resolvedProblem.difficulty || 'Medium';
     const confidence = typeof rawLog.confidence === 'number' ? rawLog.confidence : 4;
     const recognizedPattern = rawLog.recognizedPatternImmediately !== undefined ? Boolean(rawLog.recognizedPatternImmediately) : true;
     const requiredHints = rawLog.requiredHintsOrEditorial !== undefined ? Boolean(rawLog.requiredHintsOrEditorial) : false;
     const notes = typeof rawLog.notes === 'string' ? rawLog.notes.trim() : '';
     const isRevision = Boolean(rawLog.isRevision);
     const improvementAnswers = rawLog.improvementAnswers || undefined;
-    const problemUrl = rawLog.problemUrl || rawLog.url || `https://leetcode.com/problems/${problemSlug}`;
+    const problemUrl = resolvedProblem.url || rawLog.problemUrl || rawLog.url || `https://leetcode.com/problems/${problemSlug}`;
     const timeSpent = rawLog.timeSpent || '15m';
     const now = Date.now();
 
-    const problemId = `prob-${problemSlug}`;
     const refId = `ref-${now}-${Math.random().toString(36).substring(2, 7)}`;
     const solvId = `solv-${now}-${Math.random().toString(36).substring(2, 7)}`;
 
-    console.log(`[Omega Server] Processing secure practice log for user ${uid} (${authUser.email || 'no-email'}): "${problemTitle}"`);
+    console.log(`[Omega Server] Processing secure practice log for user ${uid} (${authUser.email || 'no-email'}): "${problemTitle}" (Canonical ID: ${problemId})`);
 
     // 1. Run AI analysis if available or synthesize smart feedback
     let aiAnalysis = '';
@@ -1375,11 +1558,30 @@ app.post('/api/extension/log', async (req, res) => {
       return res.status(400).json({ error: 'Missing log object' });
     }
 
+    // Resolve canonical problem via smart comparison system & automatic URL ingestion
+    const resolvedProblem = await smartResolveProblem({
+      title: log.problemTitle || log.title,
+      slug: log.problemSlug || log.slug,
+      url: log.problemUrl || log.url,
+      platform: log.platform,
+      feltDifficulty: log.feltDifficulty || log.difficulty,
+    });
+
+    const enrichedLog = {
+      ...log,
+      problemId: resolvedProblem.id,
+      problemTitle: resolvedProblem.title,
+      problemSlug: resolvedProblem.platformProblemId || resolvedProblem.id,
+      platform: resolvedProblem.platform,
+      difficulty: log.feltDifficulty || log.difficulty || resolvedProblem.difficulty,
+      problemUrl: resolvedProblem.url || log.problemUrl || log.url || '',
+    };
+
     const logRecord: ExtensionLogRecord = {
       id: log.id || `ext-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
       userId: userId || 'guest',
       userEmail: userEmail || undefined,
-      log: log,
+      log: enrichedLog,
       timestamp: Date.now(),
     };
 
@@ -1408,9 +1610,9 @@ app.post('/api/extension/log', async (req, res) => {
     userStat.todayCount = userStat.dailyCounts[todayDateKey];
     userStat.recentLogs.unshift({
       id: logRecord.id,
-      problemTitle: log.problemTitle || log.problemSlug || 'Problem Reflection',
-      platform: log.platform || 'LeetCode',
-      difficulty: log.feltDifficulty || log.difficulty || 'Medium',
+      problemTitle: resolvedProblem.title,
+      platform: resolvedProblem.platform,
+      difficulty: log.feltDifficulty || log.difficulty || resolvedProblem.difficulty || 'Medium',
       verdict: log.verdict || 'Accepted',
       timeSpent: log.timeSpent || '15m',
       timeFormatted: new Date(logRecord.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
@@ -1745,113 +1947,8 @@ app.post('/api/platform/fetch-problem', async (req, res) => {
     }
 
     const cleanUrl = url.trim();
-    let platform: any = 'LeetCode';
-    let platformProblemId = '';
-    let title = '';
-
-    if (cleanUrl.includes('leetcode.com')) {
-      platform = 'LeetCode';
-      const match = cleanUrl.match(/\/problems\/([^\/]+)/);
-      platformProblemId = match ? match[1] : 'leetcode-problem';
-      title = platformProblemId.replace(/-/g, ' ').replace(/\b\w/g, (l) => l.toUpperCase());
-    } else if (cleanUrl.includes('codeforces.com')) {
-      platform = 'Codeforces';
-      const match = cleanUrl.match(/\/problemset\/problem\/(\d+\/[A-Z0-9]+)/i) || cleanUrl.match(/\/contest\/(\d+)\/problem\/([A-Z0-9]+)/i);
-      platformProblemId = match ? (match[2] ? `${match[1]}-${match[2]}` : match[1]) : 'cf-problem';
-      title = `Codeforces ${platformProblemId}`;
-    } else if (cleanUrl.includes('codechef.com')) {
-      platform = 'CodeChef';
-      const match = cleanUrl.match(/\/problems\/([^\/]+)/);
-      platformProblemId = match ? match[1] : 'codechef-problem';
-      title = `CodeChef ${platformProblemId}`;
-    } else if (cleanUrl.includes('hackerrank.com')) {
-      platform = 'HackerRank';
-      const match = cleanUrl.match(/\/challenges\/([^\/]+)/);
-      platformProblemId = match ? match[1] : 'hackerrank-problem';
-      title = platformProblemId.replace(/-/g, ' ').replace(/\b\w/g, (l) => l.toUpperCase());
-    } else if (cleanUrl.includes('geeksforgeeks.org')) {
-      platform = 'GeeksforGeeks';
-      const match = cleanUrl.match(/\/problems\/([^\/]+)/);
-      platformProblemId = match ? match[1] : 'gfg-problem';
-      title = platformProblemId.replace(/-/g, ' ').replace(/\b\w/g, (l) => l.toUpperCase());
-    } else if (cleanUrl.includes('atcoder.jp')) {
-      platform = 'AtCoder';
-      const match = cleanUrl.match(/\/tasks\/([^\/]+)/);
-      platformProblemId = match ? match[1] : 'atcoder-problem';
-      title = `AtCoder ${platformProblemId.toUpperCase()}`;
-    } else if (cleanUrl.includes('cses.fi')) {
-      platform = 'CSES';
-      const match = cleanUrl.match(/\/task\/(\d+)/);
-      platformProblemId = match ? match[1] : 'cses-problem';
-      title = `CSES Task ${platformProblemId}`;
-    } else if (cleanUrl.includes('spoj.com')) {
-      platform = 'SPOJ';
-      const match = cleanUrl.match(/\/problems\/([^\/]+)/);
-      platformProblemId = match ? match[1] : 'spoj-problem';
-      title = `SPOJ ${platformProblemId.toUpperCase()}`;
-    } else {
-      platform = 'LeetCode';
-      platformProblemId = 'custom-problem';
-      title = 'Custom Platform Problem';
-    }
-
-    // Call Gemini to infer difficulty, patterns, estimated time
-    try {
-      const ai = getGeminiClient();
-      const prompt = `Extract problem title and canonical metadata for this coding problem URL: "${cleanUrl}". Platform inferred: ${platform}. Default title: "${title}".
-Suggest reasonable difficulty (Easy, Medium, Hard), tags, DSA patterns, and estimated solving time in minutes (15, 30, 45, 60).`;
-
-      const aiRes = await ai.models.generateContent({
-        model: 'gemini-3.6-flash',
-        contents: prompt,
-        config: {
-          responseMimeType: 'application/json',
-          responseSchema: {
-            type: Type.OBJECT,
-            properties: {
-              title: { type: Type.STRING },
-              difficulty: { type: Type.STRING, enum: ['Easy', 'Medium', 'Hard'] },
-              tags: { type: Type.ARRAY, items: { type: Type.STRING } },
-              dsaPatterns: { type: Type.ARRAY, items: { type: Type.STRING } },
-              estimatedSolvingTimeMinutes: { type: Type.NUMBER },
-            },
-            required: ['title', 'difficulty', 'tags', 'dsaPatterns', 'estimatedSolvingTimeMinutes'],
-          },
-        },
-      });
-
-      const parsed = JSON.parse(aiRes.text || '{}');
-      return res.json({
-        problem: {
-          id: `${platform.toLowerCase()}-${platformProblemId || Date.now()}`,
-          title: parsed.title || title,
-          platform,
-          platformProblemId: platformProblemId || 'problem',
-          url: cleanUrl,
-          difficulty: parsed.difficulty || 'Medium',
-          tags: parsed.tags || [platform],
-          dsaPatterns: parsed.dsaPatterns || ['arrays'],
-          estimatedSolvingTimeMinutes: parsed.estimatedSolvingTimeMinutes || 30,
-          isPremium: false,
-        },
-      });
-    } catch {
-      // Fallback
-      return res.json({
-        problem: {
-          id: `${platform.toLowerCase()}-${platformProblemId || Date.now()}`,
-          title: title || 'Coding Problem',
-          platform,
-          platformProblemId: platformProblemId || 'problem',
-          url: cleanUrl,
-          difficulty: 'Medium',
-          tags: [platform],
-          dsaPatterns: ['arrays'],
-          estimatedSolvingTimeMinutes: 30,
-          isPremium: false,
-        },
-      });
-    }
+    const problem = await parseProblemFromUrl(cleanUrl);
+    return res.json({ problem });
   } catch (err: any) {
     return res.status(500).json({ error: err.message || 'Failed to process URL' });
   }

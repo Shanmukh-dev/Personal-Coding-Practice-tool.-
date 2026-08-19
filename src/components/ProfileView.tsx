@@ -17,16 +17,10 @@ import {
   ChevronRight,
   AlertCircle,
   Clock,
-  Palette,
-  Chrome,
-  Download,
-  Key,
-  FolderOpen,
+  RefreshCw,
 } from 'lucide-react';
 import { UserProfile, PlatformConnection, UserGamification } from '../types';
 import { DSA_PATTERNS } from '../data/dsaPatterns';
-import { ThemeSwitcher } from './ThemeSwitcher';
-import { useTheme } from '../context/ThemeContext';
 import { getProfileAvatarUrl } from '../utils/avatar';
 
 interface ProfileViewProps {
@@ -39,8 +33,6 @@ interface ProfileViewProps {
   onSignOut: () => void;
   onNavigateTab: (tab: string) => void;
   onOpenOnboarding: () => void;
-  onOpenExtensionPair?: () => void;
-  onOpenDownloadExtension?: () => void;
 }
 
 export const ProfileView: React.FC<ProfileViewProps> = ({
@@ -53,11 +45,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
   onSignOut,
   onNavigateTab,
   onOpenOnboarding,
-  onOpenExtensionPair,
-  onOpenDownloadExtension,
 }) => {
-  const { themeMode } = useTheme();
-
   const [targetLevel, setTargetLevel] = useState<UserProfile['targetInterviewLevel']>(
     userProfile?.targetInterviewLevel || 'Junior'
   );
@@ -73,11 +61,13 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
 
   const connectedPlatforms = connections.filter((c) => c.connected);
 
+  const activeTopics = selectedTopics || [];
+
   const toggleTopic = (id: string) => {
-    if (selectedTopics.includes(id)) {
-      setSelectedTopics(selectedTopics.filter((t) => t !== id));
+    if (activeTopics.includes(id)) {
+      setSelectedTopics(activeTopics.filter((t) => t !== id));
     } else {
-      setSelectedTopics([...selectedTopics, id]);
+      setSelectedTopics([...activeTopics, id]);
     }
   };
 
@@ -88,7 +78,6 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
         targetInterviewLevel: targetLevel,
         dailyLimit,
         selectedTopics,
-        theme: themeMode,
       });
       setSaveSuccess(true);
       setTimeout(() => setSaveSuccess(false), 3000);
@@ -110,8 +99,8 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
   return (
     <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
       {/* Header Profile Card */}
-      <div className="p-6 rounded-2xl bg-gradient-to-r from-zinc-900 via-zinc-900 to-zinc-950 border border-zinc-800 relative overflow-hidden shadow-xl">
-        <div className="absolute -right-10 -bottom-10 w-64 h-64 bg-slate-500/5 rounded-full blur-3xl pointer-events-none" />
+      <div className="p-6 rounded-2xl bg-zinc-900 border border-zinc-800 relative overflow-hidden shadow-xl">
+        <div className="absolute -right-10 -bottom-10 w-64 h-64 bg-blue-500/5 rounded-full blur-3xl pointer-events-none" />
 
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-6 relative z-10">
           <div className="flex items-center space-x-4">
@@ -243,253 +232,158 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
         </div>
       </div>
 
-      {/* Chrome Extension & Companion Suite */}
-      <div className="p-6 rounded-2xl bg-zinc-900 border border-zinc-800 space-y-5 shadow-lg">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-zinc-800/80 pb-4">
-          <div className="flex items-center space-x-3.5">
-            <div className="w-11 h-11 rounded-xl bg-blue-500/10 border border-blue-500/20 text-blue-400 flex items-center justify-center font-bold text-xl shrink-0">
-              <Chrome className="w-5 h-5 text-blue-400" />
-            </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <h2 className="text-base font-bold text-zinc-100">Omega Chrome Extension</h2>
-                <span className="px-2 py-0.5 text-[10px] font-semibold tracking-wide bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 rounded-full font-mono">
-                  Manifest V3
-                </span>
-              </div>
-              <p className="text-xs text-zinc-400 mt-0.5">
-                Seamlessly capture LeetCode submissions, trigger instant reflection prompts, and synchronize practice streaks.
-              </p>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => onNavigateTab('connectors')}
-              className="text-xs text-slate-300 hover:text-slate-100 font-mono hover:underline flex items-center gap-1 cursor-pointer"
-            >
-              <span>View All Connectors</span>
-              <ChevronRight className="w-3.5 h-3.5" />
-            </button>
-          </div>
-        </div>
-
-        {/* 2-Column Action Cards for Extension */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {/* 1. Download Extension Card */}
-          <div className="p-4 rounded-xl bg-zinc-950 border border-zinc-800/80 hover:border-emerald-500/40 transition-colors flex flex-col justify-between space-y-4">
-            <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <div className="w-8 h-8 rounded-lg bg-emerald-500/10 text-emerald-400 flex items-center justify-center border border-emerald-500/20">
-                  <Download className="w-4 h-4" />
-                </div>
-                <span className="text-[10px] font-mono text-emerald-400 font-semibold bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20">
-                  Save Folder / ZIP
-                </span>
-              </div>
-              <div>
-                <h3 className="text-sm font-bold text-zinc-100">Download Extension</h3>
-                <p className="text-xs text-zinc-400 leading-relaxed mt-1">
-                  Save the complete unpacked <code className="text-zinc-300 font-mono">omega-extension</code> directory to your computer or download the <code className="text-zinc-300 font-mono">.zip</code> archive to install in Chrome.
-                </p>
-              </div>
-            </div>
-
-            <button
-              onClick={onOpenDownloadExtension}
-              className="w-full py-2.5 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs transition-all flex items-center justify-center gap-2 shadow-sm cursor-pointer"
-            >
-              <FolderOpen className="w-4 h-4" />
-              <span>Download Extension to Machine</span>
-            </button>
-          </div>
-
-          {/* 2. Extension Auth Code Card */}
-          <div className="p-4 rounded-xl bg-zinc-950 border border-zinc-800/80 hover:border-blue-500/40 transition-colors flex flex-col justify-between space-y-4">
-            <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <div className="w-8 h-8 rounded-lg bg-blue-500/10 text-blue-400 flex items-center justify-center border border-blue-500/20">
-                  <Key className="w-4 h-4" />
-                </div>
-                <span className="text-[10px] font-mono text-blue-400 font-semibold bg-blue-500/10 px-2 py-0.5 rounded border border-blue-500/20">
-                  6-Digit One-Time Code
-                </span>
-              </div>
-              <div>
-                <h3 className="text-sm font-bold text-zinc-100">Extension Auth Code</h3>
-                <p className="text-xs text-zinc-400 leading-relaxed mt-1">
-                  Generate a temporary 6-digit pair token to securely authenticate the Chrome extension with your <strong className="text-zinc-200">{userProfile?.displayName || userProfile?.email || 'Omega account'}</strong>.
-                </p>
-              </div>
-            </div>
-
-            <button
-              onClick={onOpenExtensionPair}
-              className="w-full py-2.5 px-4 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-semibold text-xs transition-all flex items-center justify-center gap-2 shadow-sm cursor-pointer"
-            >
-              <Key className="w-4 h-4" />
-              <span>Generate 6-Digit Pair Code</span>
-            </button>
-          </div>
-        </div>
-      </div>
-
-      {/* Main Grid: Theme & Settings + Connected Platforms */}
+      {/* Main Grid: Adaptive Study Pacing & Target Level + Connected Platforms */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        {/* Left 2 Cols: Appearance & Interview & Learning Goals Editor */}
+        {/* Left 2 Cols: Adaptive Study Pacing & Target Level (Interview Goals & Learning Preferences) */}
         <div className="lg:col-span-2 space-y-6">
-          {/* Theme Switcher Section */}
-          <div className="p-6 rounded-2xl bg-zinc-900 border border-zinc-800">
-            <ThemeSwitcher
-              onSelectTheme={(mode) => {
-                if (userProfile) {
-                  onSaveProfile({
-                    ...userProfile,
-                    theme: mode,
-                  });
-                }
-              }}
-            />
-          </div>
-
-          <div className="p-6 rounded-2xl bg-zinc-900 border border-zinc-800 space-y-6">
+          <div className="p-6 rounded-2xl bg-zinc-900 border border-zinc-800 space-y-6 shadow-md">
             <div className="flex items-center justify-between border-b border-zinc-800/80 pb-4">
               <div>
                 <h2 className="text-base font-bold text-zinc-100 flex items-center gap-2">
                   <Target className="w-4 h-4 text-slate-300" />
-                  <span>Interview Goals & Learning Preferences</span>
+                  <span>Adaptive Study Pacing & Target Level</span>
                 </h2>
                 <p className="text-xs text-zinc-400 mt-0.5">
-                  Customize your target interview tier, daily limit, and topic priorities.
+                  Adjust your target seniority level, daily spaced retrieval load, and priority algorithm topics.
                 </p>
               </div>
 
-            <button
-              onClick={onOpenOnboarding}
-              className="text-xs text-slate-300 hover:underline flex items-center gap-1 font-mono"
-            >
-              <Sparkles className="w-3.5 h-3.5" />
-              <span>Restart Wizard</span>
-            </button>
-          </div>
-
-          {/* 1. Target Level Selection */}
-          <div className="space-y-2">
-            <label className="block text-xs font-mono font-semibold text-zinc-300 uppercase tracking-wider">
-              Target Interview Level
-            </label>
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-              {(
-                ['Internship', 'Junior', 'Mid', 'Senior', 'FAANG/Top Tech'] as const
-              ).map((lvl) => (
-                <button
-                  key={lvl}
-                  type="button"
-                  onClick={() => setTargetLevel(lvl)}
-                  className={`p-2.5 rounded-xl border text-xs text-left transition-all ${
-                    targetLevel === lvl
-                      ? 'bg-slate-100/10 border-slate-300 text-slate-100 font-semibold shadow-sm'
-                      : 'bg-zinc-950 border-zinc-800 text-zinc-400 hover:border-zinc-700'
-                  }`}
-                >
-                  <div className="flex items-center justify-between">
-                    <span>{lvl}</span>
-                    {targetLevel === lvl && <Check className="w-3.5 h-3.5 text-slate-200" />}
-                  </div>
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* 2. Daily Goal Slider */}
-          <div className="space-y-2">
-            <div className="flex items-center justify-between">
-              <label className="text-xs font-mono font-semibold text-zinc-300 uppercase tracking-wider">
-                Daily Problem Goal
-              </label>
-              <span className="text-xs font-mono text-slate-300 font-bold">
-                {dailyLimit} problems / day
-              </span>
-            </div>
-            <div className="flex items-center space-x-3 bg-zinc-950 p-3 rounded-xl border border-zinc-800">
-              <Sliders className="w-4 h-4 text-zinc-500" />
-              <input
-                type="range"
-                min={1}
-                max={5}
-                step={1}
-                value={dailyLimit}
-                onChange={(e) => setDailyLimit(Number(e.target.value))}
-                className="w-full accent-slate-300 bg-zinc-800 h-1.5 rounded-lg cursor-pointer"
-              />
-            </div>
-          </div>
-
-          {/* 3. Topics Selection Grid */}
-          <div className="space-y-2">
-            <div className="flex items-center justify-between">
-              <label className="text-xs font-mono font-semibold text-zinc-300 uppercase tracking-wider">
-                Priority Topics ({selectedTopics.length} selected)
-              </label>
               <button
-                type="button"
-                onClick={() =>
-                  setSelectedTopics(
-                    selectedTopics.length === DSA_PATTERNS.length
-                      ? []
-                      : DSA_PATTERNS.map((p) => p.id)
-                  )
-                }
-                className="text-[11px] text-slate-300 hover:underline font-mono"
+                onClick={onOpenOnboarding}
+                className="text-xs text-slate-300 hover:underline flex items-center gap-1 font-mono cursor-pointer"
               >
-                {selectedTopics.length === DSA_PATTERNS.length ? 'Deselect All' : 'Select All'}
+                <RefreshCw className="w-3.5 h-3.5" />
+                <span>Re-run Wizard</span>
               </button>
             </div>
 
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 max-h-60 overflow-y-auto p-1.5 bg-zinc-950 rounded-xl border border-zinc-800 custom-scrollbar">
-              {DSA_PATTERNS.map((p) => {
-                const selected = selectedTopics.includes(p.id);
-                return (
+            {/* 1. Target Level Selection */}
+            <div className="space-y-2">
+              <label className="block text-xs font-mono font-semibold text-zinc-300 uppercase tracking-wider">
+                Target Interview Seniority
+              </label>
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                {(
+                  ['Internship', 'Junior', 'Mid', 'Senior', 'FAANG/Top Tech'] as const
+                ).map((lvl) => (
                   <button
-                    key={p.id}
+                    key={lvl}
                     type="button"
-                    onClick={() => toggleTopic(p.id)}
-                    className={`p-2 rounded-lg border text-[11px] text-left transition-all flex items-center justify-between ${
-                      selected
-                        ? 'bg-slate-100/10 border-slate-300 text-slate-200 font-medium'
-                        : 'bg-zinc-900 border-zinc-800/80 text-zinc-400 hover:text-zinc-200'
+                    onClick={() => setTargetLevel(lvl)}
+                    className={`p-2.5 rounded-xl border text-xs text-left transition-all cursor-pointer ${
+                      targetLevel === lvl
+                        ? 'bg-slate-100/10 border-slate-300 text-slate-100 font-semibold shadow-sm'
+                        : 'bg-zinc-950 border-zinc-800 text-zinc-400 hover:border-zinc-700 hover:text-zinc-200'
                     }`}
                   >
-                    <span className="truncate">{p.name}</span>
-                    {selected && <Check className="w-3 h-3 text-slate-200 shrink-0 ml-1" />}
+                    <div className="flex items-center justify-between">
+                      <span>{lvl}</span>
+                      {targetLevel === lvl && <Check className="w-3.5 h-3.5 text-slate-200" />}
+                    </div>
                   </button>
-                );
-              })}
+                ))}
+              </div>
+            </div>
+
+            {/* 2. Daily Goal Slider */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <label className="text-xs font-mono font-semibold text-zinc-300 uppercase tracking-wider">
+                  Daily Problem Goal
+                </label>
+                <span className="text-xs font-mono text-slate-200 font-bold bg-slate-100/10 border border-slate-300/20 px-2.5 py-1 rounded-lg">
+                  {dailyLimit} Problems / Day
+                </span>
+              </div>
+              <p className="text-xs text-zinc-400">
+                The recommendation engine will curate this number of spaced retrieval problems every 24 hours.
+              </p>
+              <div className="bg-zinc-950 p-3 rounded-xl border border-zinc-800 space-y-2">
+                <div className="flex items-center space-x-3">
+                  <Sliders className="w-4 h-4 text-zinc-500 shrink-0" />
+                  <input
+                    type="range"
+                    min={1}
+                    max={10}
+                    step={1}
+                    value={dailyLimit}
+                    onChange={(e) => setDailyLimit(Number(e.target.value))}
+                    className="w-full accent-slate-300 bg-zinc-800 h-1.5 rounded-lg cursor-pointer"
+                  />
+                </div>
+                <div className="flex justify-between text-[10px] font-mono text-zinc-500 px-1">
+                  <span>1 Light</span>
+                  <span>5 Balanced</span>
+                  <span>10 Intensive</span>
+                </div>
+              </div>
+            </div>
+
+            {/* 3. Topics Selection Grid */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <label className="text-xs font-mono font-semibold text-zinc-300 uppercase tracking-wider">
+                  Active DSA Topics & Algorithms ({activeTopics.length}/{DSA_PATTERNS.length})
+                </label>
+                <button
+                  type="button"
+                  onClick={() =>
+                    setSelectedTopics(
+                      activeTopics.length === DSA_PATTERNS.length
+                        ? []
+                        : DSA_PATTERNS.map((p) => p.id)
+                    )
+                  }
+                  className="text-[11px] text-slate-300 hover:underline font-mono cursor-pointer"
+                >
+                  {activeTopics.length === DSA_PATTERNS.length ? 'Deselect All' : 'Select All'}
+                </button>
+              </div>
+
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 max-h-64 overflow-y-auto p-1.5 bg-zinc-950 rounded-xl border border-zinc-800 custom-scrollbar">
+                {DSA_PATTERNS.map((p) => {
+                  const selected = activeTopics.includes(p.id);
+                  return (
+                    <button
+                      key={p.id}
+                      type="button"
+                      onClick={() => toggleTopic(p.id)}
+                      className={`p-2 rounded-lg border text-[11px] text-left transition-all flex items-center justify-between cursor-pointer ${
+                        selected
+                          ? 'bg-slate-100/10 border-slate-300 text-slate-200 font-medium'
+                          : 'bg-zinc-900 border-zinc-800/80 text-zinc-400 hover:text-zinc-200'
+                      }`}
+                    >
+                      <span className="truncate">{p.name}</span>
+                      {selected && <Check className="w-3 h-3 text-slate-200 shrink-0 ml-1" />}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Save Button */}
+            <div className="pt-2 flex items-center justify-between border-t border-zinc-800">
+              {saveSuccess && (
+                <span className="text-xs text-slate-300 font-mono flex items-center gap-1.5">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-400" /> Preferences updated successfully!
+                </span>
+              )}
+              <button
+                onClick={handleSavePreferences}
+                disabled={saving}
+                className="ml-auto px-6 py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 disabled:opacity-50 text-zinc-950 font-bold text-xs flex items-center gap-2 transition-all shadow-md cursor-pointer"
+              >
+                <Check className="w-4 h-4" />
+                <span>{saving ? 'Saving...' : 'Save Learning Preferences'}</span>
+              </button>
             </div>
           </div>
-
-          {/* Save Button */}
-          <div className="pt-2 flex items-center justify-between border-t border-zinc-800">
-            {saveSuccess && (
-              <span className="text-xs text-slate-300 font-mono flex items-center gap-1.5">
-                <CheckCircle2 className="w-4 h-4" /> Preferences updated successfully!
-              </span>
-            )}
-            <button
-              onClick={handleSavePreferences}
-              disabled={saving}
-              className="ml-auto px-6 py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 disabled:opacity-50 text-zinc-950 font-bold text-xs flex items-center gap-2 transition-all shadow-md"
-            >
-              <Check className="w-4 h-4" />
-              <span>{saving ? 'Saving...' : 'Save Learning Preferences'}</span>
-            </button>
-          </div>
-        </div>
         </div>
 
         {/* Right Col: Connected Platforms & Sync Status */}
         <div className="space-y-6">
-          <div className="p-6 rounded-2xl bg-zinc-900 border border-zinc-800 space-y-4">
+          <div className="p-6 rounded-2xl bg-zinc-900 border border-zinc-800 space-y-4 shadow-md">
             <div className="flex items-center justify-between">
               <h3 className="text-sm font-bold text-zinc-100 flex items-center gap-2">
                 <Link2 className="w-4 h-4 text-slate-300" />
@@ -498,7 +392,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
 
               <button
                 onClick={() => onNavigateTab('connectors')}
-                className="text-xs text-slate-300 hover:underline font-mono"
+                className="text-xs text-slate-300 hover:underline font-mono cursor-pointer"
               >
                 Manage
               </button>
@@ -533,7 +427,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
                 </p>
                 <button
                   onClick={() => onNavigateTab('connectors')}
-                  className="px-3 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-slate-200 text-xs font-mono font-semibold border border-zinc-700 transition-all inline-flex items-center gap-1.5"
+                  className="px-3 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-slate-200 text-xs font-mono font-semibold border border-zinc-700 transition-all inline-flex items-center gap-1.5 cursor-pointer"
                 >
                   <Link2 className="w-3.5 h-3.5" />
                   <span>Connect Platform</span>
@@ -543,7 +437,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
           </div>
 
           {/* Omega System Info Card */}
-          <div className="p-6 rounded-2xl bg-zinc-900/60 border border-zinc-800/80 space-y-3">
+          <div className="p-6 rounded-2xl bg-zinc-900/60 border border-zinc-800/80 space-y-3 shadow-md">
             <h4 className="text-xs font-mono uppercase text-zinc-400 font-semibold tracking-wider">
               System Architecture
             </h4>

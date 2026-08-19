@@ -2,8 +2,11 @@
 
 document.addEventListener('DOMContentLoaded', () => {
   // Top Views
+  const initialLoadingView = document.getElementById('initialLoadingView');
+  const initialLoadingText = document.getElementById('initialLoadingText');
   const unauthenticatedView = document.getElementById('unauthenticatedView');
   const authenticatedView = document.getElementById('authenticatedView');
+  const extSyncBar = document.getElementById('extSyncBar');
 
   // Server Status & Config Elements
   const statusDot = document.getElementById('statusDot');
@@ -48,8 +51,6 @@ document.addEventListener('DOMContentLoaded', () => {
   const toggleLabel = document.getElementById('toggleStatusLabel');
   const todayDateStr = document.getElementById('todayDateStr');
   const todayCountNum = document.getElementById('todayCountNum');
-  const todayProgressBar = document.getElementById('todayProgressBar');
-  const targetStatusText = document.getElementById('targetStatusText');
   const streakCount = document.getElementById('streakCount');
 
   const monthNameLabel = document.getElementById('monthNameLabel');
@@ -178,14 +179,14 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  // 4. Test Server Connectivity
+  // 4. Test Server Connectivity with loading animation
   function testServerConnectivity(urlToTest) {
     const checkUrl = normalizeAppUrl(urlToTest || currentAppUrl);
     if (statusDot) {
-      statusDot.className = 'status-dot';
+      statusDot.className = 'status-dot loading';
     }
     if (serverStatusText) {
-      serverStatusText.textContent = 'Connecting...';
+      serverStatusText.textContent = 'Checking server...';
     }
 
     chrome.runtime.sendMessage({ type: 'PING_SERVER', url: checkUrl }, (res) => {
@@ -377,18 +378,35 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  // 4b. Refresh / Sync Stats Action
+  // Helper for subtle syncing indicator in popup
+  function setSyncingState(isSyncing) {
+    if (extSyncBar) {
+      extSyncBar.style.display = isSyncing ? 'block' : 'none';
+    }
+    if (refreshStatsBtn) {
+      if (isSyncing) {
+        refreshStatsBtn.classList.add('is-syncing');
+      } else {
+        refreshStatsBtn.classList.remove('is-syncing');
+      }
+    }
+    if (syncStatusPill && syncStatusDot && syncStatusText && isSyncing) {
+      syncStatusPill.className = 'cloud-pill syncing';
+      syncStatusDot.className = 'cloud-dot syncing';
+      syncStatusText.textContent = 'Syncing...';
+    }
+  }
+
+  // 4b. Refresh / Sync Stats Action with subtle loading animation
   if (refreshStatsBtn) {
     refreshStatsBtn.addEventListener('click', () => {
-      refreshStatsBtn.style.transform = 'rotate(360deg)';
-      refreshStatsBtn.style.transition = 'transform 0.5s ease';
-      setTimeout(() => {
-        refreshStatsBtn.style.transform = 'none';
-        refreshStatsBtn.style.transition = 'none';
-      }, 500);
+      setSyncingState(true);
 
       chrome.runtime.sendMessage({ type: 'SYNC_USER_STATS' }, (res) => {
-        loadPopupData();
+        loadPopupData(false);
+        setTimeout(() => {
+          setSyncingState(false);
+        }, 400);
       });
     });
   }
@@ -400,7 +418,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const newUser = changes.omega_user.newValue;
         renderAuthState(newUser);
         if (newUser) {
-          loadPopupData();
+          loadPopupData(false);
         }
       }
       if (changes.omega_app_url) {
@@ -411,19 +429,32 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 
-  // Load initial status
-  loadPopupData();
+  // Load initial status (with initial resolving view)
+  loadPopupData(true);
 
-  function loadPopupData() {
+  function loadPopupData(isInitial = false) {
+    if (isInitial && initialLoadingView) {
+      initialLoadingView.style.display = 'flex';
+      if (unauthenticatedView) unauthenticatedView.style.display = 'none';
+      if (authenticatedView) authenticatedView.style.display = 'none';
+    }
+
     chrome.runtime.sendMessage({ type: 'GET_STATUS' }, (res) => {
       if (chrome.runtime.lastError || !res) {
         console.warn('Could not connect to background script:', chrome.runtime.lastError);
+        if (initialLoadingView) initialLoadingView.style.display = 'none';
+        renderAuthState(null);
         return;
       }
 
       currentAppUrl = normalizeAppUrl(res.appUrl || CLOUD_APP_URL);
       if (serverUrlInput) serverUrlInput.value = currentAppUrl;
       testServerConnectivity(currentAppUrl);
+
+      // Hide initial loading screen
+      if (initialLoadingView) {
+        initialLoadingView.style.display = 'none';
+      }
 
       // Update User Auth State
       const isAuthenticated = res.user && res.user.uid && res.user.uid !== 'guest';
@@ -440,20 +471,6 @@ document.addEventListener('DOMContentLoaded', () => {
         // Update Today's Solved Count
         const count = res.todayCount || 0;
         if (todayCountNum) todayCountNum.textContent = count;
-
-        const dailyGoal = res.dailyGoal || 3;
-        const progressPercent = Math.min(100, Math.round((count / dailyGoal) * 100));
-        if (todayProgressBar) todayProgressBar.style.width = `${progressPercent}%`;
-
-        if (targetStatusText) {
-          if (count >= dailyGoal) {
-            targetStatusText.textContent = `Goal Reached! (${count}/${dailyGoal})`;
-            targetStatusText.style.color = '#34d399';
-          } else {
-            targetStatusText.textContent = `${dailyGoal - count} more to reach goal (${count}/${dailyGoal})`;
-            targetStatusText.style.color = '#fbbf24';
-          }
-        }
 
         // Streak
         const streak = res.streak || (count > 0 ? 1 : 0);

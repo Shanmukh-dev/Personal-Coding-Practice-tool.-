@@ -1,4 +1,5 @@
 import { Problem, Difficulty, Platform } from '../types';
+import { normalizeTitleForComparison, findMatchingProblem, cleanProblemTitle } from '../utils/problemMatcher';
 
 export interface StriverRawEntry {
   topic: string;
@@ -266,7 +267,7 @@ export const STRIVER_RAW_DATA: StriverRawEntry[] = [
   { topic: 'Binary Trees [Traversals, Medium and Hard Problems]', subTopic: 'Medium Problems', problem: 'Maximum Depth in BT', difficulty: 'Medium', platform: 'LeetCode' },
   { topic: 'Binary Trees [Traversals, Medium and Hard Problems]', subTopic: 'Medium Problems', problem: 'Check for balanced binary tree', difficulty: 'Medium', platform: 'LeetCode' },
   { topic: 'Binary Trees [Traversals, Medium and Hard Problems]', subTopic: 'Medium Problems', problem: 'Diameter of Binary Tree', difficulty: 'Easy', platform: 'LeetCode' },
-  { topic: 'Binary Trees [Traversals, Medium and Hard Problems]', subTopic: 'Medium Problems', problem: 'Maximum path sum', difficulty: 'Medium', platform: 'LeetCode' },
+  { topic: 'Binary Trees [Traversals, Medium and Hard Problems]', subTopic: 'Medium Problems', problem: 'Binary Tree Maximum Path Sum', difficulty: 'Hard', platform: 'LeetCode' },
   { topic: 'Binary Trees [Traversals, Medium and Hard Problems]', subTopic: 'Medium Problems', problem: 'Check if two trees are identical or not', difficulty: 'Medium', platform: 'LeetCode' },
   { topic: 'Binary Trees [Traversals, Medium and Hard Problems]', subTopic: 'Medium Problems', problem: 'Zig Zag or Spiral Traversal', difficulty: 'Medium', platform: 'LeetCode' },
   { topic: 'Binary Trees [Traversals, Medium and Hard Problems]', subTopic: 'Medium Problems', problem: 'Boundary Traversal', difficulty: 'Medium', platform: 'LeetCode' },
@@ -530,26 +531,29 @@ export function buildStriverSheetProblem(
 export function mergeStriverSheetIntoCatalog(existingCatalog: Problem[]): Problem[] {
   const catalogMap = new Map<string, Problem>();
 
-  // Map existing catalog by normalized key
+  // Map existing catalog
   for (const prob of existingCatalog) {
     catalogMap.set(prob.id, { ...prob });
   }
 
-  // Map titles for fuzzy matching
-  const titleToProbMap = new Map<string, Problem>();
-  for (const prob of catalogMap.values()) {
-    titleToProbMap.set(normalizeTitle(prob.title), prob);
-  }
-
   STRIVER_RAW_DATA.forEach((raw, idx) => {
-    const normTitle = normalizeTitle(raw.problem);
-    const existing = titleToProbMap.get(normTitle);
+    const currentCatalogList = Array.from(catalogMap.values());
+    const existing = findMatchingProblem(
+      {
+        title: raw.problem,
+        platform: raw.platform,
+      },
+      currentCatalogList
+    );
 
     if (existing) {
       // Mark as striver sheet problem
       existing.isStriverSheet = true;
       existing.striverTopic = raw.topic;
       existing.striverSubTopic = raw.subTopic;
+      if (!existing.tags) {
+        existing.tags = [];
+      }
       if (!existing.tags.includes("Striver's AtoZ DSA Sheet")) {
         existing.tags.push("Striver's AtoZ DSA Sheet");
       }
@@ -558,7 +562,6 @@ export function mergeStriverSheetIntoCatalog(existingCatalog: Problem[]): Proble
       // Create new problem from Striver's sheet entry
       const newProblem = buildStriverSheetProblem(raw, idx);
       catalogMap.set(newProblem.id, newProblem);
-      titleToProbMap.set(normTitle, newProblem);
     }
   });
 

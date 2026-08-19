@@ -223,9 +223,9 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
 
   // Filter catalog for add problem modal
   const filteredCatalog = catalog.filter((p) => {
-    const matchesSearch = p.title.toLowerCase().includes(catalogSearch.toLowerCase());
+    const matchesSearch = (p.title || '').toLowerCase().includes(catalogSearch.toLowerCase());
     const matchesPattern =
-      selectedPatternFilter === 'All' || p.dsaPatterns.includes(selectedPatternFilter);
+      selectedPatternFilter === 'All' || (p.dsaPatterns || []).includes(selectedPatternFilter);
     return matchesSearch && matchesPattern;
   });
 

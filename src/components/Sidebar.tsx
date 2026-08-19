@@ -10,27 +10,19 @@ import {
   Bug,
   Bot,
   Link2,
-  LogOut,
   User as UserIcon,
   Sparkles,
   Trophy,
   Menu,
   X,
-  ChevronRight,
-  ChevronLeft,
   Calendar,
-  Sun,
-  Moon,
-  Monitor,
   Sliders,
   PanelLeftClose,
   PanelLeftOpen,
 } from 'lucide-react';
 import { UserProfile, UserGamification } from '../types';
-import { useTheme } from '../context/ThemeContext';
 import { getProfileAvatarUrl } from '../utils/avatar';
 import { Logo } from './Logo';
-import { SyncStatusWidget } from './SyncStatusWidget';
 
 interface SidebarProps {
   userProfile: UserProfile | null;
@@ -38,7 +30,7 @@ interface SidebarProps {
   activeTab: string;
   setActiveTab: (tab: string) => void;
   onOpenAuth: () => void;
-  onSignOut: () => void;
+  onSignOut?: () => void;
   onOpenOnboarding: () => void;
   onOpenExtensionPair?: () => void;
   onOpenDownloadExtension?: () => void;
@@ -58,18 +50,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
   activeTab,
   setActiveTab,
   onOpenAuth,
-  onSignOut,
-  onOpenOnboarding,
-  onOpenExtensionPair,
-  onOpenDownloadExtension,
   dueRevisionsCount = 0,
   queueProgressText,
   isCollapsed: propIsCollapsed,
   onToggleCollapse,
-  lastSyncTime = null,
-  isSyncing = false,
-  isExtensionDetected = false,
-  onManualSync = () => {},
 }) => {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [internalCollapsed, setInternalCollapsed] = useState(false);
@@ -81,14 +65,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
     } else {
       setInternalCollapsed(!internalCollapsed);
     }
-  };
-
-  const { themeMode, resolvedTheme, setThemeMode } = useTheme();
-
-  const cycleTheme = () => {
-    if (themeMode === 'system') setThemeMode('light');
-    else if (themeMode === 'light') setThemeMode('dark');
-    else setThemeMode('system');
   };
 
   const navItems = [
@@ -119,7 +95,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
     { id: 'coach', label: 'AI Adaptive Coach', icon: Bot },
     { id: 'gamification', label: 'Streaks & Badges', icon: Trophy },
     { id: 'settings', label: 'Settings & Theme', icon: Sliders },
-    { id: 'profile', label: 'Engineer Profile', icon: UserIcon },
   ];
 
   const handleTabClick = (id: string) => {
@@ -330,81 +305,49 @@ export const Sidebar: React.FC<SidebarProps> = ({
         </div>
 
         {/* Bottom Profile Footer */}
-        <div className="p-2 border-t border-zinc-800/80 bg-zinc-950/60 shrink-0 space-y-2">
-          {!isCollapsed && (
-            <div className="px-1">
-              <SyncStatusWidget
-                lastSyncTime={lastSyncTime}
-                isSyncing={isSyncing}
-                isExtensionDetected={isExtensionDetected}
-                onManualSync={onManualSync}
-                onOpenPairModal={onOpenExtensionPair || (() => {})}
-                currentUser={userProfile}
-                compact={true}
-              />
-            </div>
-          )}
-
+        <div className="p-2 border-t border-zinc-800/80 bg-zinc-950/60 shrink-0">
           {userProfile ? (
             !isCollapsed ? (
-              <div className="p-2 rounded-xl bg-zinc-900/60 border border-zinc-800/80 flex items-center justify-between gap-2">
-                <button
-                  onClick={() => handleTabClick('profile')}
-                  className="flex items-center space-x-2.5 min-w-0 text-left hover:opacity-80 transition-opacity"
-                  title="View Profile & Settings"
-                >
-                  <div className="w-7 h-7 rounded-lg bg-zinc-800 border border-zinc-700 overflow-hidden flex items-center justify-center shrink-0">
-                    <img
-                      src={getProfileAvatarUrl(userProfile.photoURL, userProfile.email, userProfile.displayName)}
-                      alt={userProfile.displayName || 'Profile'}
-                      className="w-full h-full object-cover"
-                      referrerPolicy="no-referrer"
-                      onError={(e) => {
-                        (e.target as HTMLElement).style.display = 'none';
-                      }}
-                    />
-                  </div>
-                  <div className="flex flex-col min-w-0">
-                    <span className="text-xs font-semibold text-zinc-200 truncate block">
-                      {userProfile.displayName ||
-                        userProfile.email?.split('@')[0] ||
-                        'Engineer'}
-                    </span>
-                    <span className="text-[10px] font-mono text-zinc-400 truncate block">
-                      {userProfile.targetInterviewLevel} Level
-                    </span>
-                  </div>
-                </button>
-
-                <div className="flex items-center space-x-1 shrink-0">
-                  <button
-                    onClick={cycleTheme}
-                    className="p-1.5 rounded-lg text-zinc-400 hover:text-slate-200 hover:bg-zinc-800 transition-colors"
-                    title={`Theme: ${themeMode} (${resolvedTheme}). Click to cycle.`}
-                  >
-                    {themeMode === 'system' ? (
-                      <Monitor className="w-3.5 h-3.5" />
-                    ) : resolvedTheme === 'light' ? (
-                      <Sun className="w-3.5 h-3.5 text-amber-400" />
-                    ) : (
-                      <Moon className="w-3.5 h-3.5 text-indigo-400" />
-                    )}
-                  </button>
-
-                  <button
-                    onClick={onSignOut}
-                    className="p-1.5 rounded-lg text-zinc-500 hover:text-rose-400 hover:bg-rose-500/10 transition-colors"
-                    title="Sign Out"
-                  >
-                    <LogOut className="w-4 h-4" />
-                  </button>
+              <button
+                onClick={() => handleTabClick('profile')}
+                className={`w-full p-2.5 rounded-xl border flex items-center space-x-3 text-left transition-all group ${
+                  activeTab === 'profile'
+                    ? 'bg-blue-600/10 border-blue-500/40 ring-1 ring-blue-500/30'
+                    : 'bg-zinc-900/70 border-zinc-800 hover:border-zinc-700 hover:bg-zinc-800/60'
+                }`}
+                title="Engineer Profile & Account"
+              >
+                <div className="w-8 h-8 rounded-lg bg-zinc-800 border border-zinc-700 overflow-hidden flex items-center justify-center shrink-0">
+                  <img
+                    src={getProfileAvatarUrl(userProfile.photoURL, userProfile.email, userProfile.displayName)}
+                    alt={userProfile.displayName || 'Profile'}
+                    className="w-full h-full object-cover"
+                    referrerPolicy="no-referrer"
+                    onError={(e) => {
+                      (e.target as HTMLElement).style.display = 'none';
+                    }}
+                  />
                 </div>
-              </div>
+                <div className="flex flex-col min-w-0 flex-1">
+                  <span className="text-xs font-semibold text-zinc-200 truncate block group-hover:text-zinc-100">
+                    {userProfile.displayName ||
+                      userProfile.email?.split('@')[0] ||
+                      'Engineer'}
+                  </span>
+                  <span className="text-[10px] font-mono text-zinc-400 truncate block">
+                    {userProfile.targetInterviewLevel} Level
+                  </span>
+                </div>
+              </button>
             ) : (
-              <div className="flex flex-col items-center gap-2 py-1">
+              <div className="flex flex-col items-center py-1">
                 <button
                   onClick={() => handleTabClick('profile')}
-                  className="w-8 h-8 rounded-lg bg-zinc-800 border border-zinc-700 overflow-hidden flex items-center justify-center shrink-0 hover:ring-2 ring-slate-400 transition-all"
+                  className={`w-9 h-9 rounded-lg border overflow-hidden flex items-center justify-center shrink-0 transition-all ${
+                    activeTab === 'profile'
+                      ? 'bg-zinc-800 border-blue-500 ring-2 ring-blue-500/30'
+                      : 'bg-zinc-800 border-zinc-700 hover:border-zinc-500'
+                  }`}
                   title={`${userProfile.displayName || 'Profile'} (${userProfile.targetInterviewLevel} Level)`}
                 >
                   <img
@@ -414,28 +357,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     referrerPolicy="no-referrer"
                   />
                 </button>
-                <div className="flex items-center gap-1">
-                  <button
-                    onClick={cycleTheme}
-                    className="p-1 rounded-lg text-zinc-400 hover:text-slate-200 hover:bg-zinc-800 transition-colors"
-                    title={`Theme: ${themeMode}`}
-                  >
-                    {themeMode === 'system' ? (
-                      <Monitor className="w-3.5 h-3.5" />
-                    ) : resolvedTheme === 'light' ? (
-                      <Sun className="w-3.5 h-3.5 text-amber-400" />
-                    ) : (
-                      <Moon className="w-3.5 h-3.5 text-indigo-400" />
-                    )}
-                  </button>
-                  <button
-                    onClick={onSignOut}
-                    className="p-1 rounded-lg text-zinc-500 hover:text-rose-400 hover:bg-rose-500/10 transition-colors"
-                    title="Sign Out"
-                  >
-                    <LogOut className="w-3.5 h-3.5" />
-                  </button>
-                </div>
               </div>
             )
           ) : (

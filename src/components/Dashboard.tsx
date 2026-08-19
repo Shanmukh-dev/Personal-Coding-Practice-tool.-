@@ -27,7 +27,7 @@ import { PracticeTopicSelector } from './PracticeTopicSelector';
 import { getProfileAvatarUrl } from '../utils/avatar';
 import { ActivityHeatmap } from './ActivityHeatmap';
 import { getLocalDateKey, getOffsetLocalDateKey } from '../utils/dateUtils';
-import { SyncStatusWidget } from './SyncStatusWidget';
+import { Logo } from './Logo';
 
 interface DashboardProps {
   userProfile: UserProfile | null;
@@ -95,9 +95,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
   if (isNewUser) {
     return (
       <div className="max-w-4xl mx-auto py-12 px-4 text-center">
-        <div className="w-16 h-16 rounded-2xl bg-[#0b1326] border border-[#334155] flex items-center justify-center text-[#dae2fd] font-serif font-bold text-3xl mx-auto mb-6 shadow-xl">
-          Ω
-        </div>
+        <Logo size={64} className="mx-auto mb-6" />
         <h1 className="text-2xl sm:text-3xl font-bold text-zinc-100 tracking-tight">
           Welcome to Omega
         </h1>
@@ -272,16 +270,6 @@ export const Dashboard: React.FC<DashboardProps> = ({
           </div>
         </div>
       </div>
-
-      {/* Extension & Cloud Synchronization Status Banner */}
-      <SyncStatusWidget
-        lastSyncTime={lastSyncTime}
-        isSyncing={isSyncing}
-        isExtensionDetected={isExtensionDetected}
-        onManualSync={onManualSync}
-        onOpenPairModal={onOpenPairModal}
-        currentUser={userProfile}
-      />
 
       {/* Practice Activity Heatmap (LeetCode Style) */}
       <ActivityHeatmap

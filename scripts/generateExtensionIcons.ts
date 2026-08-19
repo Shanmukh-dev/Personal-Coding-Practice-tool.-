@@ -56,14 +56,24 @@ function createPng(width: number, height: number, rgbaBuffer: Buffer): Buffer {
   ]);
 }
 
-// Generate Omega Logo Badge (Dark background #0b1326, rounded corners, light omega #dae2fd)
-function renderOmegaIcon(size: number): Buffer {
+// Generate Omega Logo Badge
+// variant: 'dark' (#0b1326 bg, #dae2fd text) or 'light' (#f7f9fb bg, #0b1326 text)
+function renderOmegaIcon(size: number, variant: 'dark' | 'light' = 'light'): Buffer {
   const buf = Buffer.alloc(size * size * 4, 0);
 
-  const bgR = 11, bgG = 19, bgB = 38; // #0b1326
-  const borderR = 51, borderG = 65, borderB = 85; // #334155
-  const fgR = 218, fgG = 226, fgB = 253; // #dae2fd
-  const radius = Math.max(2, Math.round(size * 0.16));
+  const bgR = variant === 'dark' ? 11 : 247;
+  const bgG = variant === 'dark' ? 19 : 249;
+  const bgB = variant === 'dark' ? 38 : 251; // dark: #0b1326, light: #f7f9fb
+
+  const borderR = variant === 'dark' ? 51 : 203;
+  const borderG = variant === 'dark' ? 65 : 213;
+  const borderB = variant === 'dark' ? 85 : 225; // dark: #334155, light: #cbd5e1
+
+  const fgR = variant === 'dark' ? 218 : 11;
+  const fgG = variant === 'dark' ? 226 : 19;
+  const fgB = variant === 'dark' ? 253 : 38; // dark: #dae2fd, light: #0b1326
+
+  const radius = Math.max(2, Math.round(size * 0.18));
 
   for (let y = 0; y < size; y++) {
     for (let x = 0; x < size; x++) {
@@ -152,19 +162,29 @@ function renderOmegaIcon(size: number): Buffer {
 }
 
 const iconsDir = path.join(process.cwd(), 'extension', 'icons');
-if (!fs.existsSync(iconsDir)) {
-  fs.mkdirSync(iconsDir, { recursive: true });
-}
-
-[16, 32, 48, 128].forEach((size) => {
-  const png = renderOmegaIcon(size);
-  const outPath = path.join(iconsDir, `icon${size}.png`);
-  fs.writeFileSync(outPath, png);
-  console.log(`Generated ${outPath} (${png.length} bytes)`);
+const publicIconsDir = path.join(process.cwd(), 'public', 'icons');
+[iconsDir, publicIconsDir].forEach((dir) => {
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
 });
 
-// Also create SVG copy
-const svgContent = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100%" height="100%">
+// Standard extension icons (default to light emblem for high contrast on dark extension background)
+[16, 32, 48, 128].forEach((size) => {
+  const lightPng = renderOmegaIcon(size, 'light');
+  const darkPng = renderOmegaIcon(size, 'dark');
+
+  fs.writeFileSync(path.join(iconsDir, `icon${size}.png`), lightPng);
+  fs.writeFileSync(path.join(iconsDir, `icon${size}-light.png`), lightPng);
+  fs.writeFileSync(path.join(iconsDir, `icon${size}-dark.png`), darkPng);
+
+  fs.writeFileSync(path.join(publicIconsDir, `icon${size}.png`), lightPng);
+  fs.writeFileSync(path.join(publicIconsDir, `icon${size}-light.png`), lightPng);
+  fs.writeFileSync(path.join(publicIconsDir, `icon${size}-dark.png`), darkPng);
+
+  console.log(`Generated icon${size}.png (light & dark variants)`);
+});
+
+// Create Dark & Light SVGs
+const darkSvg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100%" height="100%">
   <rect width="100" height="100" rx="16" fill="#0b1326" stroke="#334155" stroke-width="3"/>
   <text 
     x="50" 
@@ -178,5 +198,26 @@ const svgContent = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100
   >Ω</text>
 </svg>`;
 
-fs.writeFileSync(path.join(iconsDir, 'icon.svg'), svgContent, 'utf8');
-console.log('Generated extension/icons/icon.svg');
+const lightSvg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100%" height="100%">
+  <rect width="100" height="100" rx="16" fill="#f7f9fb" stroke="#cbd5e1" stroke-width="3"/>
+  <text 
+    x="50" 
+    y="54" 
+    font-family="Lora, Georgia, 'Times New Roman', serif" 
+    font-weight="bold" 
+    font-size="68" 
+    text-anchor="middle" 
+    dominant-baseline="central" 
+    fill="#0b1326"
+  >Ω</text>
+</svg>`;
+
+fs.writeFileSync(path.join(iconsDir, 'icon.svg'), lightSvg, 'utf8');
+fs.writeFileSync(path.join(iconsDir, 'icon-light.svg'), lightSvg, 'utf8');
+fs.writeFileSync(path.join(iconsDir, 'icon-dark.svg'), darkSvg, 'utf8');
+
+fs.writeFileSync(path.join(publicIconsDir, 'icon.svg'), lightSvg, 'utf8');
+fs.writeFileSync(path.join(publicIconsDir, 'icon-light.svg'), lightSvg, 'utf8');
+fs.writeFileSync(path.join(publicIconsDir, 'icon-dark.svg'), darkSvg, 'utf8');
+
+console.log('Generated all Light & Dark SVG and PNG icon assets.');

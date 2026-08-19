@@ -28,11 +28,13 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({
 
   if (!isOpen) return null;
 
+  const activeTopics = selectedTopics || [];
+
   const toggleTopic = (id: string) => {
-    if (selectedTopics.includes(id)) {
-      setSelectedTopics(selectedTopics.filter((t) => t !== id));
+    if (activeTopics.includes(id)) {
+      setSelectedTopics(activeTopics.filter((t) => t !== id));
     } else {
-      setSelectedTopics([...selectedTopics, id]);
+      setSelectedTopics([...activeTopics, id]);
     }
   };
 
@@ -40,7 +42,7 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({
     onSave({
       targetInterviewLevel: targetLevel,
       dailyLimit,
-      selectedTopics,
+      selectedTopics: activeTopics,
       onboardingCompleted: true,
     });
     onClose();
@@ -127,21 +129,21 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({
                 type="button"
                 onClick={() =>
                   setSelectedTopics(
-                    selectedTopics.length === DSA_PATTERNS.length
+                    activeTopics.length === DSA_PATTERNS.length
                       ? []
                       : DSA_PATTERNS.map((p) => p.id)
                   )
                 }
                 className="text-[11px] text-slate-300 hover:underline"
               >
-                {selectedTopics.length === DSA_PATTERNS.length
+                {activeTopics.length === DSA_PATTERNS.length
                   ? 'Deselect All'
                   : 'Select All'}
               </button>
             </div>
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 max-h-56 overflow-y-auto p-1 bg-zinc-950 rounded-lg border border-zinc-800/80">
               {DSA_PATTERNS.map((p) => {
-                const selected = selectedTopics.includes(p.id);
+                const selected = activeTopics.includes(p.id);
                 return (
                   <button
                     key={p.id}

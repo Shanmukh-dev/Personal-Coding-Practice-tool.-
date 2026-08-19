@@ -60,6 +60,11 @@ import { generateDailyQueue } from './services/recommendationEngine';
 import { calculateNextRevision, intelligentAutoRescheduleOverdueCards } from './services/revisionEngine';
 import { updateGamificationProgress } from './services/gamificationService';
 import { computePatternTaxonomy } from './services/taxonomyEngine';
+import {
+  findMatchingProblem,
+  cleanProblemTitle,
+  canonicalizeProblemUrl,
+} from './utils/problemMatcher';
 
 import { Sidebar } from './components/Sidebar';
 import { AuthModal } from './components/AuthModal';
@@ -81,13 +86,18 @@ import { SettingsView } from './components/SettingsView';
 import { OnboardingAuthScreen } from './components/OnboardingAuthScreen';
 import { ExtensionPairModal } from './components/ExtensionPairModal';
 import { DownloadExtensionModal } from './components/DownloadExtensionModal';
+import { StartupLoadingScreen } from './components/StartupLoadingScreen';
 import { ThemeProvider, ThemeMode } from './context/ThemeContext';
+import { motion, AnimatePresence } from 'motion/react';
+import { RefreshCw } from 'lucide-react';
 
 export default function App() {
   const [currentUser, setCurrentUser] = useState<FirebaseUser | null>(null);
   const [userProfile, setUserProfileState] = useState<UserProfile | null>(null);
   const [activeTab, setActiveTab] = useState<string>('dashboard');
   const [isGuestEntered, setIsGuestEntered] = useState<boolean>(false);
+  const [isStartupLoading, setIsStartupLoading] = useState<boolean>(true);
+  const [startupStatusText, setStartupStatusText] = useState<string>('Initializing Omega DSA OS...');
 
   // Firestore Data State
   const [connections, setConnections] = useState<PlatformConnection[]>([]);
@@ -134,7 +144,9 @@ export default function App() {
       setCurrentUser(user);
       if (user) {
         setIsGuestEntered(true);
+        setStartupStatusText('Loading profile & spaced repetition decks...');
         await loadUserData(user.uid, user.email, user.displayName, user.photoURL);
+        setIsStartupLoading(false);
       } else {
         // Clear authenticated state
         setConnections([]);
@@ -154,12 +166,14 @@ export default function App() {
           try {
             const parsed = JSON.parse(savedGuest);
             setUserProfileState(parsed);
+            setIsGuestEntered(true);
           } catch {
             initGuestProfile();
           }
         } else {
           initGuestProfile();
         }
+        setIsStartupLoading(false);
       }
     });
     return () => unsubscribe();
@@ -433,36 +447,64 @@ export default function App() {
     const uid = currentUserRef.current?.uid || auth.currentUser?.uid || (rawLog.userId && rawLog.userId !== 'guest' ? rawLog.userId : 'guest');
     const isAuthed = Boolean(auth.currentUser?.uid || (uid && uid !== 'guest'));
     const timestamp = rawLog.timestamp || Date.now();
-    const title = rawLog.problemTitle || rawLog.problemSlug || 'Practice Problem';
-    const slug = rawLog.problemSlug || title.toLowerCase().replace(/[^a-z0-9]+/g, '-');
+    const title = rawLog.problemTitle || rawLog.problemSlug || rawLog.title || 'Practice Problem';
+    const slug = rawLog.problemSlug || rawLog.slug || title.toLowerCase().replace(/[^a-z0-9]+/g, '-');
     const platform = (rawLog.platform || 'LeetCode') as Platform;
-    const url = rawLog.problemUrl || `https://leetcode.com/problems/${slug}`;
-    const difficulty = rawLog.feltDifficulty || 'Medium';
+    const url = rawLog.problemUrl || rawLog.url || `https://leetcode.com/problems/${slug}`;
+    const difficulty = rawLog.feltDifficulty || rawLog.difficulty || 'Medium';
 
-    // 1. Match or register problem in catalog
-    let matchedProblem = catalogRef.current.find(
-      (p) =>
-        p.platformProblemId?.toLowerCase() === slug.toLowerCase() ||
-        p.title?.toLowerCase() === title.toLowerCase() ||
-        (p.url && url && p.url.toLowerCase() === url.toLowerCase())
+    // 1. Smart Comparison System: Check if problem exists in catalog (regular and Striver list)
+    let matchedProblem = findMatchingProblem(
+      {
+        id: rawLog.problemId,
+        title: title,
+        slug: slug,
+        url: url,
+        platform: platform,
+      },
+      catalogRef.current
     );
 
+    // If not found in catalog, automatically trigger "Add problem by URL" pipeline
     if (!matchedProblem) {
-      matchedProblem = {
-        id: `prob-ext-${slug}-${Date.now()}`,
-        title: title,
-        platform: platform,
-        platformProblemId: slug,
-        difficulty: difficulty,
-        dsaPatterns: ['General'],
-        url: url,
-        estimatedTimeMinutes: 20,
-      };
+      try {
+        const targetUrl = url || `https://leetcode.com/problems/${slug}`;
+        const res = await fetch('/api/platform/fetch-problem', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ url: targetUrl }),
+        });
+
+        if (res.ok) {
+          const data = await res.json();
+          if (data.problem) {
+            matchedProblem = data.problem as Problem;
+          }
+        }
+      } catch (fetchErr) {
+        console.warn('Auto add problem by URL error:', fetchErr);
+      }
+
+      if (!matchedProblem) {
+        const canonicalId = `${platform.toLowerCase()}-${slug}`;
+        matchedProblem = {
+          id: canonicalId,
+          title: cleanProblemTitle(title) || 'Practice Problem',
+          platform: platform,
+          platformProblemId: slug,
+          difficulty: difficulty as any,
+          dsaPatterns: ['General'],
+          tags: [platform],
+          url: url,
+          estimatedSolvingTimeMinutes: 20,
+        };
+      }
+
       if (isAuthed) {
         await saveGlobalProblem(matchedProblem);
       }
       setCatalog((prev) => {
-        const next = [...prev, matchedProblem!];
+        const next = [...prev.filter((p) => p.id !== matchedProblem!.id), matchedProblem!];
         catalogRef.current = next;
         return next;
       });
@@ -575,9 +617,9 @@ export default function App() {
 
     // 6. Update Knowledge Memory (Permanent Learning Memory)
     const existingMem = memoriesRef.current.find((m) => m.problemId === matchedProblem!.id);
-    const prevConfHistory = existingMem?.confidenceHistory || [];
-    const prevReflHistory = existingMem?.reflectionHistory || [];
-    const prevInsights = existingMem?.keyInsights || [];
+    const prevConfHistory = Array.isArray(existingMem?.confidenceHistory) ? existingMem.confidenceHistory : [];
+    const prevReflHistory = Array.isArray(existingMem?.reflectionHistory) ? existingMem.reflectionHistory : [];
+    const prevInsights = Array.isArray(existingMem?.keyInsights) ? existingMem.keyInsights : [];
 
     const newMem: LearningMemory = {
       problemId: matchedProblem.id,
@@ -593,7 +635,7 @@ export default function App() {
         newReflection,
         ...prevReflHistory.filter((r) => r.id !== refId),
       ],
-      mistakes: existingMem?.mistakes || [],
+      mistakes: Array.isArray(existingMem?.mistakes) ? existingMem.mistakes : [],
       keyInsights: newReflection.notes && !prevInsights.includes(newReflection.notes)
         ? [...prevInsights, newReflection.notes]
         : prevInsights,
@@ -1694,6 +1736,17 @@ export default function App() {
     }
   };
 
+  if (isStartupLoading) {
+    return (
+      <ThemeProvider
+        initialTheme={userProfile?.theme || 'dark'}
+        onThemeChange={handleThemeChange}
+      >
+        <StartupLoadingScreen statusText={startupStatusText} />
+      </ThemeProvider>
+    );
+  }
+
   if (!currentUser && !isGuestEntered) {
     return (
       <ThemeProvider
@@ -1703,9 +1756,14 @@ export default function App() {
         <OnboardingAuthScreen
           onAuthSuccess={async (uid, email, displayName) => {
             setIsGuestEntered(true);
+            setIsStartupLoading(true);
+            setStartupStatusText('Synchronizing workspace data...');
             await loadUserData(uid, email, displayName);
+            setIsStartupLoading(false);
           }}
-          onContinueAsGuest={() => setIsGuestEntered(true)}
+          onContinueAsGuest={() => {
+            setIsGuestEntered(true);
+          }}
         />
       </ThemeProvider>
     );
@@ -1716,26 +1774,55 @@ export default function App() {
       initialTheme={userProfile?.theme || 'system'}
       onThemeChange={handleThemeChange}
     >
-      <div className="min-h-screen bg-zinc-950 text-zinc-100 font-sans antialiased selection:bg-slate-500/20 selection:text-slate-200 flex flex-col md:flex-row">
-      <Sidebar
-        userProfile={userProfile}
-        gamification={gamification}
-        activeTab={activeTab}
-        setActiveTab={setActiveTab}
-        onOpenAuth={() => setIsAuthOpen(true)}
-        onSignOut={handleSignOut}
-        onOpenOnboarding={() => setIsOnboardingOpen(true)}
-        onOpenExtensionPair={() => setIsExtensionPairModalOpen(true)}
-        onOpenDownloadExtension={() => setIsDownloadExtensionModalOpen(true)}
-        dueRevisionsCount={dueRevisions}
-        queueProgressText={queueProgressText}
-        isCollapsed={isSidebarCollapsed}
-        onToggleCollapse={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
-        lastSyncTime={lastSyncTime}
-        isSyncing={isSyncing}
-        isExtensionDetected={isExtensionDetected}
-        onManualSync={handleManualSync}
-      />
+      <div className="min-h-screen bg-zinc-950 text-zinc-100 font-sans antialiased selection:bg-slate-500/20 selection:text-slate-200 flex flex-col md:flex-row relative">
+        {/* Subtle Sync Indicator Bar across top edge */}
+        <AnimatePresence>
+          {isSyncing && (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.2 }}
+              className="fixed top-0 left-0 right-0 h-[2px] bg-gradient-to-r from-blue-500 via-indigo-400 to-emerald-400 z-50 animate-pulse pointer-events-none"
+            />
+          )}
+        </AnimatePresence>
+
+        {/* Subtle Floating Sync Badge */}
+        <AnimatePresence>
+          {isSyncing && (
+            <motion.div
+              initial={{ opacity: 0, y: -10, scale: 0.95 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: -10, scale: 0.95 }}
+              transition={{ duration: 0.25, ease: 'easeOut' }}
+              className="fixed top-3 right-4 z-50 flex items-center gap-2 px-3 py-1.5 rounded-full bg-zinc-900/95 border border-zinc-800/90 shadow-xl text-zinc-300 text-[11px] font-mono backdrop-blur-md pointer-events-none select-none"
+            >
+              <RefreshCw className="w-3 h-3 text-blue-400 animate-spin" />
+              <span>Syncing data...</span>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        <Sidebar
+          userProfile={userProfile}
+          gamification={gamification}
+          activeTab={activeTab}
+          setActiveTab={setActiveTab}
+          onOpenAuth={() => setIsAuthOpen(true)}
+          onSignOut={handleSignOut}
+          onOpenOnboarding={() => setIsOnboardingOpen(true)}
+          onOpenExtensionPair={() => setIsExtensionPairModalOpen(true)}
+          onOpenDownloadExtension={() => setIsDownloadExtensionModalOpen(true)}
+          dueRevisionsCount={dueRevisions}
+          queueProgressText={queueProgressText}
+          isCollapsed={isSidebarCollapsed}
+          onToggleCollapse={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
+          lastSyncTime={lastSyncTime}
+          isSyncing={isSyncing}
+          isExtensionDetected={isExtensionDetected}
+          onManualSync={handleManualSync}
+        />
 
       <div className={`flex-1 min-w-0 transition-all duration-300 ease-in-out flex flex-col min-h-screen ${
         isSidebarCollapsed ? 'md:pl-16' : 'md:pl-64'
@@ -1839,8 +1926,6 @@ export default function App() {
               onSignOut={handleSignOut}
               onNavigateTab={setActiveTab}
               onOpenOnboarding={() => setIsOnboardingOpen(true)}
-              onOpenExtensionPair={() => setIsExtensionPairModalOpen(true)}
-              onOpenDownloadExtension={() => setIsDownloadExtensionModalOpen(true)}
             />
           )}
 

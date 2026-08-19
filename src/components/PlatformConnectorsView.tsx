@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Link2, Check, RefreshCw, Copy, CheckCircle2, AlertCircle, Code, Download, FolderOpen } from 'lucide-react';
 import { Platform, PlatformConnection } from '../types';
 import { ALL_PLATFORMS, generateUserscriptSnippet } from '../services/platformConnectors';
+import { Logo } from './Logo';
 
 interface PlatformConnectorsViewProps {
   userId: string;
@@ -266,9 +267,7 @@ export const PlatformConnectorsView: React.FC<PlatformConnectorsViewProps> = ({
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-zinc-800 pb-5">
           <div className="flex items-center space-x-3.5">
             {/* Omega Badge matching Sidebar */}
-            <div className="w-11 h-11 rounded-lg bg-[#0b1326] border border-[#334155] flex items-center justify-center shrink-0 shadow-md">
-              <span className="font-serif font-bold text-2xl text-[#dae2fd]">Ω</span>
-            </div>
+            <Logo size="lg" />
             <div>
               <div className="flex items-center space-x-2">
                 <h2 className="text-lg font-bold text-zinc-100">Omega Chrome Extension (Manifest V3)</h2>
@@ -473,9 +472,7 @@ export const PlatformConnectorsView: React.FC<PlatformConnectorsViewProps> = ({
           <div className="bg-zinc-900 border border-zinc-700 rounded-2xl max-w-md w-full p-6 relative shadow-2xl space-y-5">
             <div className="flex items-center justify-between border-b border-zinc-800 pb-3">
               <div className="flex items-center gap-2.5">
-                <div className="w-8 h-8 rounded-lg bg-[#0b1326] border border-[#334155] flex items-center justify-center text-sm font-serif font-bold text-[#dae2fd]">
-                  Ω
-                </div>
+                <Logo size="sm" />
                 <h3 className="text-base font-bold text-zinc-100">
                   Chrome Extension Pair Code
                 </h3>

@@ -21,17 +21,18 @@ const CORE_FAANG_TOPICS = [
 ];
 
 export const PracticeTopicSelector: React.FC<PracticeTopicSelectorProps> = ({
-  selectedTopics,
+  selectedTopics = [],
   onUpdateTopics,
   onRegenerateQueue,
 }) => {
   const [isCollapsed, setIsCollapsed] = useState(true);
+  const topics = selectedTopics || [];
 
   const toggleTopic = (patternId: string) => {
-    if (selectedTopics.includes(patternId)) {
-      onUpdateTopics(selectedTopics.filter((id) => id !== patternId));
+    if (topics.includes(patternId)) {
+      onUpdateTopics(topics.filter((id) => id !== patternId));
     } else {
-      onUpdateTopics([...selectedTopics, patternId]);
+      onUpdateTopics([...topics, patternId]);
     }
   };
 
@@ -130,7 +131,7 @@ export const PracticeTopicSelector: React.FC<PracticeTopicSelectorProps> = ({
           {/* Topics Grid */}
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2.5">
             {DSA_PATTERNS.map((pattern) => {
-              const isSelected = selectedTopics.includes(pattern.id);
+              const isSelected = topics.includes(pattern.id);
               return (
                 <button
                   key={pattern.id}

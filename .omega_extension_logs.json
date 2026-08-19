@@ -1,0 +1,33 @@
+[
+  {
+    "id": "ref-1787146356886-hppih",
+    "userId": "3hBnCwLw0XOQnZkfVZZrkhoJ9Fg2",
+    "userEmail": "tssv2006@gmail.com",
+    "log": {
+      "id": "ref-1787146356886-hppih",
+      "userId": "3hBnCwLw0XOQnZkfVZZrkhoJ9Fg2",
+      "problemId": "leetcode-124",
+      "problemTitle": "Binary Tree Maximum Path Sum",
+      "problemSlug": "binary-tree-maximum-path-sum",
+      "platform": "LeetCode",
+      "confidence": 5,
+      "perceivedDifficulty": "Easy",
+      "feltDifficulty": "Easy",
+      "recognizedPatternImmediately": true,
+      "requiredHintsOrEditorial": false,
+      "keyTakeaways": "Easy",
+      "notes": "Easy",
+      "isRevision": false,
+      "improvementAnswers": null,
+      "aiAnalysis": {
+        "summary": "This problem requires a post-order DFS to distinguish between returning a single-branch path to the parent and updating the global path sum split at the current node, while properly ignoring negative subtree contributions using `max(0, subtree_sum)`. \n\nRevisit this in two weeks to test your code against an all-negative node tree and confirm your logic handles arbitrary node-to-node paths rather than a simpler root-to-leaf path (noting that LeetCode actually rates this as a Hard problem).",
+        "identifiedMistakes": [],
+        "suggestedFocus": "Spaced repetition"
+      },
+      "source": "chrome-extension",
+      "createdAt": 1787146356886,
+      "timestamp": 1787146356886
+    },
+    "timestamp": 1787146356886
+  }
+]

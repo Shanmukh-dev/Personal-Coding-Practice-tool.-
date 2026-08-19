@@ -68,7 +68,8 @@ export function scoreCandidateProblem(
 
   // Topic match
   const selectedTopics = userProfile.selectedTopics || [];
-  const matchesSelectedTopic = problem.dsaPatterns.some((p) =>
+  const probPatterns = problem.dsaPatterns || [];
+  const matchesSelectedTopic = probPatterns.some((p) =>
     selectedTopics.includes(p)
   );
   if (matchesSelectedTopic) {
@@ -77,7 +78,7 @@ export function scoreCandidateProblem(
   }
 
   // Interview importance weight from DSA taxonomy
-  for (const patId of problem.dsaPatterns) {
+  for (const patId of probPatterns) {
     const patMeta = DSA_PATTERNS.find((dp) => dp.id === patId);
     if (patMeta) {
       if (patMeta.interviewWeight === 'Essential') {
@@ -141,7 +142,7 @@ export function generateDailyQueue(
     if (!selectedTopics || selectedTopics.length === 0) return true;
     const prob = catalogMap.get(problemId);
     if (!prob) return true;
-    return prob.dsaPatterns.some((pat) => selectedTopics.includes(pat));
+    return (prob.dsaPatterns || []).some((pat) => selectedTopics.includes(pat));
   };
 
   // 1. Identify uncompleted carry-over items from previous days that match selected topics
@@ -196,7 +197,7 @@ export function generateDailyQueue(
   if (newQueue.length < dailyLimit) {
     let candidateProblems = catalog.filter((p) => {
       if (currentlyQueuedProblemIds.has(p.id)) return false;
-      if (selectedTopics.length > 0 && !p.dsaPatterns.some((pat) => selectedTopics.includes(pat))) {
+      if (selectedTopics.length > 0 && !(p.dsaPatterns || []).some((pat) => selectedTopics.includes(pat))) {
         return false;
       }
       return true;

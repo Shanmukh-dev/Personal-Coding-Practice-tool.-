@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { X, Mail, Lock, LogIn, AlertCircle } from 'lucide-react';
+import { Logo } from './Logo';
 import {
   auth,
   googleProvider,
@@ -74,9 +75,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onAuthSuc
         </button>
 
         <div className="mb-6 text-center">
-          <div className="w-10 h-10 rounded-xl bg-[#0b1326] border border-[#334155] flex items-center justify-center text-[#dae2fd] font-serif font-bold text-xl mx-auto mb-3">
-            Ω
-          </div>
+          <Logo size="lg" className="mx-auto mb-3" />
           <h2 className="text-xl font-bold text-zinc-100">
             {isSignUp ? 'Create your Omega Account' : 'Welcome back to Omega'}
           </h2>

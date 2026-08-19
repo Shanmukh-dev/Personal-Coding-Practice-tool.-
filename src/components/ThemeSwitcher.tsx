@@ -1,6 +1,7 @@
 import React from 'react';
-import { Monitor, Sun, Moon, Check, Sparkles, Sliders } from 'lucide-react';
+import { Sparkles, Sliders, Palette } from 'lucide-react';
 import { useTheme, ThemeMode } from '../context/ThemeContext';
+import { ThemeDropdown } from './ThemeDropdown';
 
 interface ThemeSwitcherProps {
   className?: string;
@@ -11,7 +12,7 @@ export const ThemeSwitcher: React.FC<ThemeSwitcherProps> = ({
   className = '',
   onSelectTheme,
 }) => {
-  const { themeMode, resolvedTheme, setThemeMode } = useTheme();
+  const { themeMode, resolvedTheme, currentTheme, setThemeMode } = useTheme();
 
   const handleSelect = (mode: ThemeMode) => {
     setThemeMode(mode);
@@ -20,156 +21,116 @@ export const ThemeSwitcher: React.FC<ThemeSwitcherProps> = ({
     }
   };
 
-  const themeOptions: {
-    id: ThemeMode;
-    name: string;
-    subtitle: string;
-    description: string;
-    icon: React.ElementType;
-    previewBg: string;
-    previewCard: string;
-    previewBorder: string;
-    previewText: string;
-    previewAccent: string;
-    badgeText?: string;
-  }[] = [
-    {
-      id: 'system',
-      name: 'System Default',
-      subtitle: 'Follow OS Preference',
-      description: 'Automatically switches between Vellum Technical and Obsidian Slate based on system setting.',
-      icon: Monitor,
-      previewBg: 'bg-gradient-to-r from-slate-100 to-zinc-900',
-      previewCard: 'bg-zinc-800/80',
-      previewBorder: 'border-zinc-500/30',
-      previewText: 'text-zinc-200',
-      previewAccent: 'bg-slate-200',
-      badgeText: 'Default',
-    },
-    {
-      id: 'light',
-      name: 'Vellum Technical',
-      subtitle: 'Cool Vellum Light Mode',
-      description: 'Expansive whitespace, rigid structural alignment, and crisp Hanken Grotesk typography.',
-      icon: Sun,
-      previewBg: 'bg-[#f7f9fb]',
-      previewCard: 'bg-white',
-      previewBorder: 'border-[#e2e8f0]',
-      previewText: 'text-[#191c1e]',
-      previewAccent: 'bg-[#0f172a]',
-    },
-    {
-      id: 'dark',
-      name: 'Obsidian Slate',
-      subtitle: 'Deep Slate Dark Mode',
-      description: 'Low-chroma deep slate palette (#0b1326), desaturated slate white accents (#e2e8f0), and Geist typography.',
-      icon: Moon,
-      previewBg: 'bg-[#0b1326]',
-      previewCard: 'bg-[#131b2e]',
-      previewBorder: 'border-[#334155]',
-      previewText: 'text-[#dae2fd]',
-      previewAccent: 'bg-[#e2e8f0]',
-    },
-  ];
-
   return (
     <div className={`space-y-4 ${className}`}>
-      <div className="flex items-center justify-between">
+      {/* Header Info */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
           <h3 className="text-sm font-bold text-zinc-100 flex items-center gap-2">
-            <Sliders className="w-4 h-4 text-slate-300" />
+            <Sliders className="w-4 h-4 text-blue-400" />
             <span>Theme & Visual Palette</span>
           </h3>
           <p className="text-xs text-zinc-400 mt-0.5">
-            Select your preferred visual architecture. Defaults to your system settings.
+            Select your preferred visual architecture or search through curated themes.
           </p>
         </div>
 
-        <div className="flex items-center gap-1.5 text-xs font-mono px-2.5 py-1 rounded-full bg-zinc-800/80 border border-zinc-700/80 text-zinc-300">
-          <Sparkles className="w-3.5 h-3.5 text-slate-300" />
-          <span>
-            Active: <strong className="text-slate-100 capitalize">{resolvedTheme} Mode</strong>
-            {themeMode === 'system' && ' (OS)'}
-          </span>
+        <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5 text-xs font-mono px-3 py-1 rounded-full bg-zinc-800/80 border border-zinc-700/80 text-zinc-300">
+            <Sparkles className="w-3.5 h-3.5 text-blue-400" />
+            <span>
+              Active: <strong className="text-zinc-100">{currentTheme.name}</strong>
+              {themeMode === 'system' ? ` (OS: ${resolvedTheme})` : ''}
+            </span>
+          </div>
         </div>
       </div>
 
-      {/* Grid of Theme Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-        {themeOptions.map((opt) => {
-          const Icon = opt.icon;
-          const isSelected = themeMode === opt.id;
+      {/* Searchable Theme Dropdown Component */}
+      <div className="max-w-xl">
+        <ThemeDropdown onSelectTheme={handleSelect} />
+      </div>
 
-          return (
-            <button
-              key={opt.id}
-              type="button"
-              onClick={() => handleSelect(opt.id)}
-              className={`p-4 rounded-xl border text-left transition-all relative flex flex-col justify-between group cursor-pointer ${
-                isSelected
-                  ? 'bg-slate-800/50 border-slate-300 ring-1 ring-slate-400/50 shadow-md'
-                  : 'bg-zinc-950/80 border-zinc-800 hover:border-zinc-700 hover:bg-zinc-900/60'
-              }`}
-            >
-              {/* Header inside option card */}
-              <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center space-x-2">
-                    <div
-                      className={`p-2 rounded-lg border transition-colors ${
-                        isSelected
-                          ? 'bg-slate-100 text-zinc-950 border-slate-300'
-                          : 'bg-zinc-900 text-zinc-400 border-zinc-800 group-hover:text-zinc-200'
-                      }`}
-                    >
-                      <Icon className="w-4 h-4" />
-                    </div>
-                    <div>
-                      <span className="text-xs font-bold text-zinc-100 block flex items-center gap-1.5">
-                        {opt.name}
-                        {opt.badgeText && (
-                          <span className="text-[9px] font-mono px-1.5 py-0.2 rounded bg-zinc-800 text-zinc-400 border border-zinc-700 font-normal">
-                            {opt.badgeText}
-                          </span>
-                        )}
-                      </span>
-                      <span className="text-[10px] font-mono text-zinc-400 block">
-                        {opt.subtitle}
-                      </span>
-                    </div>
-                  </div>
+      {/* Active Theme Color Specs / Pallete Inspector */}
+      <div className="p-4 rounded-xl bg-zinc-950/60 border border-zinc-800/80 space-y-3">
+        <div className="flex items-center justify-between">
+          <span className="text-xs font-semibold text-zinc-300 flex items-center gap-1.5">
+            <Palette className="w-3.5 h-3.5 text-blue-400" />
+            Active Palette Tokens
+          </span>
+          <span className="text-[10px] font-mono text-zinc-400">
+            {currentTheme.palette.bg} • {currentTheme.palette.card} • {currentTheme.palette.accent}
+          </span>
+        </div>
 
-                  <div
-                    className={`w-5 h-5 rounded-full border flex items-center justify-center transition-all ${
-                      isSelected
-                        ? 'bg-slate-100 border-slate-300 text-zinc-950'
-                        : 'border-zinc-700 bg-zinc-900 opacity-60'
-                    }`}
-                  >
-                    {isSelected && <Check className="w-3 h-3 stroke-[3]" />}
-                  </div>
-                </div>
+        <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
+          <div className="p-2 rounded-lg bg-zinc-900 border border-zinc-800 flex items-center gap-2">
+            <div
+              className="w-4 h-4 rounded-md border border-white/20 shrink-0"
+              style={{ backgroundColor: currentTheme.palette.bg }}
+            />
+            <div className="min-w-0">
+              <span className="text-[10px] text-zinc-400 block truncate">Canvas</span>
+              <span className="text-[10px] font-mono text-zinc-200 font-bold block truncate">
+                {currentTheme.palette.bg}
+              </span>
+            </div>
+          </div>
 
-                <p className="text-[11px] text-zinc-400 leading-snug pt-1">
-                  {opt.description}
-                </p>
-              </div>
+          <div className="p-2 rounded-lg bg-zinc-900 border border-zinc-800 flex items-center gap-2">
+            <div
+              className="w-4 h-4 rounded-md border border-white/20 shrink-0"
+              style={{ backgroundColor: currentTheme.palette.card }}
+            />
+            <div className="min-w-0">
+              <span className="text-[10px] text-zinc-400 block truncate">Surface</span>
+              <span className="text-[10px] font-mono text-zinc-200 font-bold block truncate">
+                {currentTheme.palette.card}
+              </span>
+            </div>
+          </div>
 
-              {/* Visual Preview Chip */}
-              <div className="mt-4 pt-3 border-t border-zinc-800/60 flex items-center justify-between text-[10px] font-mono">
-                <span className="text-zinc-500">Preview:</span>
-                <div className={`p-1.5 rounded-lg ${opt.previewBg} border ${opt.previewBorder} flex items-center space-x-1.5 shadow-sm`}>
-                  <div className={`w-3 h-3 rounded ${opt.previewCard} border ${opt.previewBorder}`} />
-                  <div className={`w-2 h-2 rounded-full ${opt.previewAccent}`} />
-                  <span className={`text-[9px] font-bold ${opt.previewText}`}>
-                    Aa
-                  </span>
-                </div>
-              </div>
-            </button>
-          );
-        })}
+          <div className="p-2 rounded-lg bg-zinc-900 border border-zinc-800 flex items-center gap-2">
+            <div
+              className="w-4 h-4 rounded-md border border-white/20 shrink-0"
+              style={{ backgroundColor: currentTheme.palette.border }}
+            />
+            <div className="min-w-0">
+              <span className="text-[10px] text-zinc-400 block truncate">Border</span>
+              <span className="text-[10px] font-mono text-zinc-200 font-bold block truncate">
+                {currentTheme.palette.border}
+              </span>
+            </div>
+          </div>
+
+          <div className="p-2 rounded-lg bg-zinc-900 border border-zinc-800 flex items-center gap-2">
+            <div
+              className="w-4 h-4 rounded-md border border-white/20 shrink-0"
+              style={{ backgroundColor: currentTheme.palette.accent }}
+            />
+            <div className="min-w-0">
+              <span className="text-[10px] text-zinc-400 block truncate">Accent</span>
+              <span className="text-[10px] font-mono text-zinc-200 font-bold block truncate">
+                {currentTheme.palette.accent}
+              </span>
+            </div>
+          </div>
+
+          <div className="p-2 rounded-lg bg-zinc-900 border border-zinc-800 flex items-center gap-2">
+            <div
+              className="w-4 h-4 rounded-md border border-white/20 shrink-0"
+              style={{ backgroundColor: currentTheme.palette.text }}
+            />
+            <div className="min-w-0">
+              <span className="text-[10px] text-zinc-400 block truncate">Text</span>
+              <span className="text-[10px] font-mono text-zinc-200 font-bold block truncate">
+                {currentTheme.palette.text}
+              </span>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   );
 };
+

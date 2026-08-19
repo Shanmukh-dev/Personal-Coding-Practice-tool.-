@@ -87,11 +87,14 @@ export const ProblemCatalogView: React.FC<ProblemCatalogViewProps> = ({
 
   const filteredCatalog = catalog.filter((p) => {
     const term = searchTerm.toLowerCase().trim();
+    const pTags = p.tags || [];
+    const pPatterns = p.dsaPatterns || [];
+
     const matchesSearch =
       !term ||
-      p.title.toLowerCase().includes(term) ||
-      p.tags.some((t) => t.toLowerCase().includes(term)) ||
-      p.dsaPatterns.some((pat) => pat.toLowerCase().includes(term)) ||
+      (p.title || '').toLowerCase().includes(term) ||
+      pTags.some((t) => t && t.toLowerCase().includes(term)) ||
+      pPatterns.some((pat) => pat && pat.toLowerCase().includes(term)) ||
       (p.striverTopic && p.striverTopic.toLowerCase().includes(term)) ||
       (p.striverSubTopic && p.striverSubTopic.toLowerCase().includes(term));
 
@@ -100,8 +103,8 @@ export const ProblemCatalogView: React.FC<ProblemCatalogViewProps> = ({
 
     const matchesSource =
       sourceFilter === 'all' ||
-      (sourceFilter === 'striver' && (p.isStriverSheet || p.tags.includes("Striver's AtoZ DSA Sheet"))) ||
-      (sourceFilter === 'non_striver' && !p.isStriverSheet && !p.tags.includes("Striver's AtoZ DSA Sheet"));
+      (sourceFilter === 'striver' && (p.isStriverSheet || pTags.includes("Striver's AtoZ DSA Sheet"))) ||
+      (sourceFilter === 'non_striver' && !p.isStriverSheet && !pTags.includes("Striver's AtoZ DSA Sheet"));
 
     const matchesStriverTopic =
       selectedStriverTopic === 'all' ||
@@ -109,8 +112,8 @@ export const ProblemCatalogView: React.FC<ProblemCatalogViewProps> = ({
 
     const matchesTopic =
       selectedTopic === 'all' ||
-      p.dsaPatterns?.some((pat) => pat.toLowerCase() === selectedTopic.toLowerCase()) ||
-      p.tags?.some((t) => t.toLowerCase() === selectedTopic.toLowerCase()) ||
+      pPatterns.some((pat) => pat && pat.toLowerCase() === selectedTopic.toLowerCase()) ||
+      pTags.some((t) => t && t.toLowerCase() === selectedTopic.toLowerCase()) ||
       (p.striverTopic && p.striverTopic.toLowerCase() === selectedTopic.toLowerCase()) ||
       (p.striverSubTopic && p.striverSubTopic.toLowerCase() === selectedTopic.toLowerCase());
 
@@ -118,7 +121,7 @@ export const ProblemCatalogView: React.FC<ProblemCatalogViewProps> = ({
   });
 
   const striverProblemCount = useMemo(() => {
-    return catalog.filter((p) => p.isStriverSheet || p.tags.includes("Striver's AtoZ DSA Sheet")).length;
+    return catalog.filter((p) => p.isStriverSheet || (p.tags || []).includes("Striver's AtoZ DSA Sheet")).length;
   }, [catalog]);
 
   const resetAllFilters = () => {
@@ -367,7 +370,7 @@ export const ProblemCatalogView: React.FC<ProblemCatalogViewProps> = ({
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {filteredCatalog.map((problem) => {
-            const isStriver = problem.isStriverSheet || problem.tags.includes("Striver's AtoZ DSA Sheet");
+            const isStriver = problem.isStriverSheet || (problem.tags || []).includes("Striver's AtoZ DSA Sheet");
             return (
               <div
                 key={problem.id}

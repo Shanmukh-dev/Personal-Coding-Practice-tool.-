@@ -17,7 +17,15 @@ export interface UserProfile {
   dailyLimit: number; // default 3-5
   targetInterviewLevel: 'Internship' | 'Junior' | 'Mid' | 'Senior' | 'FAANG/Top Tech';
   selectedTopics: string[]; // DSA pattern IDs
-  theme?: 'system' | 'light' | 'dark';
+  theme?:
+    | 'system'
+    | 'light'
+    | 'dark'
+    | 'obsidian-slate'
+    | 'cyberpunk-matrix'
+    | 'sunset-crimson'
+    | 'nordic-frost'
+    | string;
   onboardingCompleted: boolean;
   createdAt: number;
 }

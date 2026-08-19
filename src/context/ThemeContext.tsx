@@ -1,10 +1,19 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
+import { THEME_LIST, ThemeDefinition, getThemeById } from '../data/themes';
 
-export type ThemeMode = 'system' | 'light' | 'dark';
+export type ThemeMode =
+  | 'system'
+  | 'dark'
+  | 'light'
+  | 'obsidian-slate'
+  | 'cyberpunk-matrix'
+  | 'sunset-crimson'
+  | 'nordic-frost';
 
 interface ThemeContextType {
   themeMode: ThemeMode;
   resolvedTheme: 'light' | 'dark';
+  currentTheme: ThemeDefinition;
   setThemeMode: (mode: ThemeMode) => void;
 }
 
@@ -18,12 +27,21 @@ export const ThemeProvider: React.FC<{
   onThemeChange?: (mode: ThemeMode) => void;
 }> = ({ children, initialTheme, onThemeChange }) => {
   const [themeMode, setThemeState] = useState<ThemeMode>(() => {
-    const saved = localStorage.getItem(LOCAL_STORAGE_KEY);
-    if (saved === 'light' || saved === 'dark' || saved === 'system') {
-      return saved as ThemeMode;
+    const saved = localStorage.getItem(LOCAL_STORAGE_KEY) as ThemeMode | null;
+    const validThemes: ThemeMode[] = [
+      'system',
+      'dark',
+      'light',
+      'obsidian-slate',
+      'cyberpunk-matrix',
+      'sunset-crimson',
+      'nordic-frost',
+    ];
+    if (saved && validThemes.includes(saved)) {
+      return saved;
     }
-    if (initialTheme) return initialTheme;
-    return 'system';
+    if (initialTheme && validThemes.includes(initialTheme)) return initialTheme;
+    return 'dark'; // Main dark theme (matching extension popup) is the default
   });
 
   const [resolvedTheme, setResolvedTheme] = useState<'light' | 'dark'>('dark');
@@ -41,21 +59,38 @@ export const ThemeProvider: React.FC<{
   useEffect(() => {
     const updateTheme = () => {
       let active: 'light' | 'dark' = 'dark';
+      let activeThemeId = themeMode;
+
       if (themeMode === 'system') {
-        active =
+        const isSystemDark =
           window.matchMedia &&
-          window.matchMedia('(prefers-color-scheme: dark)').matches
-            ? 'dark'
-            : 'light';
+          window.matchMedia('(prefers-color-scheme: dark)').matches;
+        active = isSystemDark ? 'dark' : 'light';
+        activeThemeId = isSystemDark ? 'dark' : 'light';
+      } else if (themeMode === 'light') {
+        active = 'light';
       } else {
-        active = themeMode;
+        active = 'dark';
       }
 
       setResolvedTheme(active);
 
       const root = document.documentElement;
-      root.classList.remove('light', 'dark');
+      // Clear previous theme classes
+      root.classList.remove(
+        'light',
+        'dark',
+        'theme-dark',
+        'theme-light',
+        'theme-obsidian-slate',
+        'theme-cyberpunk-matrix',
+        'theme-sunset-crimson',
+        'theme-nordic-frost'
+      );
+
       root.classList.add(active);
+      root.classList.add(`theme-${activeThemeId}`);
+      root.setAttribute('data-theme', activeThemeId);
 
       // Dynamically update favicon based on active theme
       const favicon = document.getElementById('app-favicon') as HTMLLinkElement | null;
@@ -88,8 +123,10 @@ export const ThemeProvider: React.FC<{
     }
   };
 
+  const currentTheme = getThemeById(themeMode);
+
   return (
-    <ThemeContext.Provider value={{ themeMode, resolvedTheme, setThemeMode }}>
+    <ThemeContext.Provider value={{ themeMode, resolvedTheme, currentTheme, setThemeMode }}>
       {children}
     </ThemeContext.Provider>
   );
@@ -98,7 +135,18 @@ export const ThemeProvider: React.FC<{
 export const useTheme = () => {
   const context = useContext(ThemeContext);
   if (!context) {
-    throw new Error('useTheme must be used within a ThemeProvider');
+    // Safe fallback if called during startup or outside ThemeProvider
+    const saved = typeof window !== 'undefined' ? (localStorage.getItem(LOCAL_STORAGE_KEY) as ThemeMode | null) : null;
+    const mode: ThemeMode = saved || 'dark';
+    const isDocLight = typeof document !== 'undefined' && document.documentElement.classList.contains('light');
+    const resolved: 'light' | 'dark' = mode === 'light' || isDocLight ? 'light' : 'dark';
+    return {
+      themeMode: mode,
+      resolvedTheme: resolved,
+      currentTheme: getThemeById(mode),
+      setThemeMode: () => {},
+    };
   }
   return context;
 };
+
