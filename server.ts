@@ -195,41 +195,183 @@ interface ExtensionLogRecord {
 }
 const extensionLogsHistory: ExtensionLogRecord[] = [];
 
-// In-memory & disk cache for user stats (heatmap, solved counts, streak, logs)
-interface UserStatsData {
-  userId: string;
-  userEmail?: string;
-  todayCount: number;
-  dailyGoal: number;
-  streak: number;
-  dailyCounts: Record<string, number>;
-  monthlySolved: number;
-  activeDays: number;
-  recentLogs: Array<{
-    id: string;
-    problemTitle: string;
-    platform?: string;
-    difficulty?: string;
-    verdict?: string;
-    timeSpent?: string | number;
-    timeFormatted?: string;
-    timestamp: number;
-  }>;
-  updatedAt: number;
-}
-const userStatsCacheMap = new Map<string, UserStatsData>();
+// Calculate authoritative user stats directly from Firestore database
+export async function getUserAuthoritativeStats(
+  uid: string,
+  userEmail?: string | null,
+  clientDateKey?: string,
+  clientTzOffsetMinutes?: number
+) {
+  const now = Date.now();
+  const todayDateKey = clientDateKey || new Date(now).toISOString().split('T')[0];
+  const currentMonthKey = todayDateKey.substring(0, 7);
 
-const STATS_FILE = path.join(process.cwd(), '.omega_user_stats_cache.json');
+  let solvingsDocs: any[] = [];
+  let reflectionsDocs: any[] = [];
+  let gamificationData: any = null;
+  let profileData: any = null;
+
+  try {
+    const [solvSnap, refSnap, gamSnap, profSnap] = await Promise.all([
+      getDocs(collection(firestoreDb, 'users', uid, 'solvings')).catch(() => null),
+      getDocs(query(collection(firestoreDb, 'users', uid, 'reflections'), limit(100))).catch(() => null),
+      getDoc(doc(firestoreDb, 'users', uid, 'gamification', 'status')).catch(() => null),
+      getDoc(doc(firestoreDb, 'users', uid)).catch(() => null),
+    ]);
+
+    if (solvSnap) {
+      solvSnap.forEach((d) => solvingsDocs.push({ id: d.id, ...d.data() }));
+    }
+    if (refSnap) {
+      refSnap.forEach((d) => reflectionsDocs.push({ id: d.id, ...d.data() }));
+    }
+    if (gamSnap && gamSnap.exists()) {
+      gamificationData = gamSnap.data();
+    }
+    if (profSnap && profSnap.exists()) {
+      profileData = profSnap.data();
+    }
+  } catch (err) {
+    console.warn('[Omega Server] Error reading user collections for stats:', err);
+  }
+
+  // Calculate daily counts by mapping each distinct solve to its date
+  const dailyCounts: Record<string, number> = {};
+  const processedDayProblems = new Set<string>();
+  const processedRecordIds = new Set<string>();
+
+  // 1. From solvings collection (primary source of truth)
+  solvingsDocs.forEach((s) => {
+    const ts = s.completedAt || s.solvedAt || s.timestamp;
+    if (!ts) return;
+    let dKey = s.dateKey || s.date;
+    if (!dKey) {
+      if (typeof clientTzOffsetMinutes === 'number' && !isNaN(clientTzOffsetMinutes)) {
+        dKey = new Date(ts - clientTzOffsetMinutes * 60000).toISOString().split('T')[0];
+      } else {
+        dKey = new Date(ts).toISOString().split('T')[0];
+      }
+    }
+    const problemKey = `${dKey}_${s.problemId || s.id}`;
+    if (!processedDayProblems.has(problemKey) && !processedRecordIds.has(s.id)) {
+      processedDayProblems.add(problemKey);
+      processedRecordIds.add(s.id);
+      if (s.reflectionId) processedRecordIds.add(s.reflectionId);
+      dailyCounts[dKey] = (dailyCounts[dKey] || 0) + 1;
+    }
+  });
+
+  // 2. From reflections collection (fallback if solvings missing)
+  reflectionsDocs.forEach((r) => {
+    const ts = r.timestamp || r.createdAt;
+    if (!ts) return;
+    let dKey = r.dateKey || r.date;
+    if (!dKey) {
+      if (typeof clientTzOffsetMinutes === 'number' && !isNaN(clientTzOffsetMinutes)) {
+        dKey = new Date(ts - clientTzOffsetMinutes * 60000).toISOString().split('T')[0];
+      } else {
+        dKey = new Date(ts).toISOString().split('T')[0];
+      }
+    }
+    const problemKey = `${dKey}_${r.problemId || r.id}`;
+    if (!processedDayProblems.has(problemKey) && !processedRecordIds.has(r.id)) {
+      processedDayProblems.add(problemKey);
+      processedRecordIds.add(r.id);
+      dailyCounts[dKey] = (dailyCounts[dKey] || 0) + 1;
+    }
+  });
+
+  const todayCount = dailyCounts[todayDateKey] || 0;
+
+  let monthlySolved = 0;
+  let activeDays = 0;
+  Object.entries(dailyCounts).forEach(([dKey, count]) => {
+    if (dKey.startsWith(currentMonthKey) && count > 0) {
+      monthlySolved += count;
+      activeDays += 1;
+    }
+  });
+
+  // Recent logs
+  const recentLogs: any[] = [];
+  const addedLogIds = new Set<string>();
+
+  reflectionsDocs.forEach((r) => {
+    const id = r.id;
+    if (!addedLogIds.has(id)) {
+      addedLogIds.add(id);
+      recentLogs.push({
+        id,
+        problemTitle: r.problemTitle || r.problemSlug || 'Practice Reflection',
+        platform: r.platform || 'LeetCode',
+        difficulty: r.feltDifficulty || r.perceivedDifficulty || 'Medium',
+        verdict: 'Accepted',
+        confidence: r.confidence || 4,
+        notes: r.keyTakeaways || r.notes || '',
+        timeSpent: r.timeSpentMinutes
+          ? `${r.timeSpentMinutes}m`
+          : r.timeTakenSeconds
+          ? `${Math.round(r.timeTakenSeconds / 60)}m`
+          : '15m',
+        timeFormatted: new Date(r.timestamp || r.createdAt || now).toLocaleTimeString([], {
+          hour: '2-digit',
+          minute: '2-digit',
+        }),
+        timestamp: r.timestamp || r.createdAt || now,
+      });
+    }
+  });
+
+  solvingsDocs.forEach((s) => {
+    const id = s.id;
+    if (!addedLogIds.has(id) && !addedLogIds.has(s.reflectionId)) {
+      addedLogIds.add(id);
+      recentLogs.push({
+        id,
+        problemTitle: s.problemTitle || 'Practice Problem',
+        platform: s.platform || 'LeetCode',
+        difficulty: s.difficulty || 'Medium',
+        verdict: s.verdict || 'Accepted',
+        confidence: 4,
+        notes: '',
+        timeSpent: s.timeSpentMinutes ? `${s.timeSpentMinutes}m` : '15m',
+        timeFormatted: new Date(s.completedAt || s.solvedAt || now).toLocaleTimeString([], {
+          hour: '2-digit',
+          minute: '2-digit',
+        }),
+        timestamp: s.completedAt || s.solvedAt || now,
+      });
+    }
+  });
+
+  recentLogs.sort((a, b) => b.timestamp - a.timestamp);
+
+  const streak = gamificationData?.currentStreak || (todayCount > 0 ? 1 : 0);
+  const xp = gamificationData?.xp || solvingsDocs.length * 30;
+  const level = gamificationData?.level || Math.floor(xp / 100) + 1;
+  const dailyGoal = profileData?.dailyLimit || 3;
+
+  return {
+    userId: uid,
+    userEmail: userEmail || profileData?.email || undefined,
+    todayCount,
+    dailyGoal,
+    streak,
+    xp,
+    level,
+    monthlySolved,
+    activeDays,
+    dailyCounts,
+    totalSolvedCount: solvingsDocs.length || processedDayProblems.size,
+    recentLogs: recentLogs.slice(0, 15),
+    updatedAt: now,
+  };
+}
+
 const LOGS_FILE = path.join(process.cwd(), '.omega_extension_logs.json');
 
 function loadPersistedData() {
   try {
-    if (fs.existsSync(STATS_FILE)) {
-      const data = JSON.parse(fs.readFileSync(STATS_FILE, 'utf-8'));
-      if (Array.isArray(data)) {
-        data.forEach(([k, v]) => userStatsCacheMap.set(k, v));
-      }
-    }
     if (fs.existsSync(LOGS_FILE)) {
       const data = JSON.parse(fs.readFileSync(LOGS_FILE, 'utf-8'));
       if (Array.isArray(data)) {
@@ -237,15 +379,8 @@ function loadPersistedData() {
       }
     }
   } catch (e) {
-    console.warn('Persisted data load notice:', e);
+    console.warn('Persisted logs load notice:', e);
   }
-}
-
-function persistStats() {
-  try {
-    const entries = Array.from(userStatsCacheMap.entries());
-    fs.writeFileSync(STATS_FILE, JSON.stringify(entries), 'utf-8');
-  } catch (e) {}
 }
 
 function persistLogs() {
@@ -1148,40 +1283,8 @@ Provide a concise 2-sentence feedback: 1 sentence diagnosing the key algorithmic
       await setDoc(gamificationRef, updatedGamification, { merge: true });
     } catch (gErr) {}
 
-    // 9. Update server-side memory caches and broadcast history
-    const userKey = uid;
-    const userStat = userStatsCacheMap.get(userKey) || {
-      userId: uid,
-      userEmail: authUser.email || undefined,
-      todayCount: 0,
-      dailyGoal: 3,
-      streak: updatedGamification.currentStreak || 1,
-      dailyCounts: {},
-      monthlySolved: 0,
-      activeDays: 0,
-      recentLogs: [],
-      updatedAt: now,
-    };
-
-    userStat.dailyCounts[todayDateKey] = (userStat.dailyCounts[todayDateKey] || 0) + 1;
-    userStat.todayCount = userStat.dailyCounts[todayDateKey];
-    userStat.streak = updatedGamification.currentStreak || userStat.streak;
-    userStat.recentLogs.unshift({
-      id: refId,
-      problemTitle: problemTitle,
-      platform: platform,
-      difficulty: feltDifficulty,
-      verdict: 'Accepted',
-      timeSpent: timeSpent,
-      timeFormatted: new Date(now).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-      timestamp: now,
-    });
-    userStat.recentLogs = userStat.recentLogs.slice(0, 30);
-    userStat.updatedAt = now;
-
-    userStatsCacheMap.set(userKey, userStat);
-    if (authUser.email) userStatsCacheMap.set(authUser.email, userStat);
-    persistStats();
+    // 9. Compute real-time authoritative stats directly from Firestore
+    const authoritativeStats = await getUserAuthoritativeStats(uid, authUser.email, todayDateKey);
 
     // Push to extensionLogsHistory for synchronized web dashboard ingestion
     extensionLogsHistory.unshift({
@@ -1205,13 +1308,8 @@ Provide a concise 2-sentence feedback: 1 sentence diagnosing the key algorithmic
       nextReviewAt: nextRevisionCard.nextReviewAt,
       nextReviewDateKey: nextRevDateKey,
       aiAnalysis: aiAnalysis,
-      stats: {
-        todayCount: userStat.todayCount,
-        streak: userStat.streak,
-        xp: updatedGamification.xp,
-        level: updatedGamification.level,
-        dailyGoal: userStat.dailyGoal,
-      },
+      todayCount: authoritativeStats.todayCount,
+      stats: authoritativeStats,
     });
   } catch (err: any) {
     console.error('[Omega Server] Secure log processing error:', err);
@@ -1229,42 +1327,26 @@ app.get('/api/extension/secure/data', authenticateExtensionJwt, async (req, res)
     const authUser = (req as any).user as AuthenticatedUser;
     const uid = authUser.uid;
     const now = Date.now();
-    const todayDateKey = new Date(now).toISOString().split('T')[0];
-    const currentMonthKey = `${new Date(now).getFullYear()}-${String(new Date(now).getMonth() + 1).padStart(2, '0')}`;
+    const clientTodayKey = (req.query.todayKey || req.query.todayDateKey || req.headers['x-today-date-key']) as string | undefined;
+    const clientTzOffset = req.query.tzOffset !== undefined ? Number(req.query.tzOffset) : (req.headers['x-timezone-offset'] ? Number(req.headers['x-timezone-offset']) : undefined);
 
-    console.log(`[Omega Server] Secure data fetch requested for user ${uid}`);
+    console.log(`[Omega Server] Secure data fetch requested for user ${uid}, clientTodayKey=${clientTodayKey}`);
 
-    // Try fetching user collections from Firestore in parallel
-    let profileSnap: any = null;
-    let gamSnap: any = null;
+    // Compute authoritative stats directly from Firestore database
+    const authoritativeStats = await getUserAuthoritativeStats(uid, authUser.email, clientTodayKey, clientTzOffset);
+
+    // Try fetching user queue, revisions, mistakes in parallel
     let queueSnap: any = null;
     let revisionsSnap: any = null;
-    let reflectionsSnap: any = null;
-    let solvingsSnap: any = null;
     let mistakesSnap: any = null;
 
     try {
-      [
-        profileSnap,
-        gamSnap,
-        queueSnap,
-        revisionsSnap,
-        reflectionsSnap,
-        solvingsSnap,
-        mistakesSnap,
-      ] = await Promise.all([
-        getDoc(doc(firestoreDb, 'users', uid)).catch(() => null),
-        getDoc(doc(firestoreDb, 'users', uid, 'gamification', 'status')).catch(() => null),
+      [queueSnap, revisionsSnap, mistakesSnap] = await Promise.all([
         getDocs(collection(firestoreDb, 'users', uid, 'dailyQueue')).catch(() => null),
         getDocs(collection(firestoreDb, 'users', uid, 'revisions')).catch(() => null),
-        getDocs(query(collection(firestoreDb, 'users', uid, 'reflections'), limit(50))).catch(() => null),
-        getDocs(query(collection(firestoreDb, 'users', uid, 'solvings'), limit(100))).catch(() => null),
         getDocs(query(collection(firestoreDb, 'users', uid, 'mistakes'), limit(20))).catch(() => null),
       ]);
     } catch (dbReadErr) {}
-
-    const profile = profileSnap && profileSnap.exists() ? profileSnap.data() : null;
-    const gamification = gamSnap && gamSnap.exists() ? gamSnap.data() : null;
 
     // Daily queue
     const dailyQueue: any[] = [];
@@ -1285,74 +1367,11 @@ app.get('/api/extension/secure/data', authenticateExtensionJwt, async (req, res)
       });
     }
 
-    // Cached user stats fallback
-    const cachedStats = userStatsCacheMap.get(uid) || (authUser.email ? userStatsCacheMap.get(authUser.email) : null);
-
-    // Calculate daily heatmap counts from solvings & reflections or cache
-    const dailyCounts: Record<string, number> = { ...(cachedStats?.dailyCounts || {}) };
-    if (solvingsSnap) {
-      solvingsSnap.forEach((d: any) => {
-        const s = d.data();
-        const ts = s.solvedAt || s.completedAt || s.timestamp;
-        if (ts) {
-          const dKey = new Date(ts).toISOString().split('T')[0];
-          dailyCounts[dKey] = (dailyCounts[dKey] || 0) + 1;
-        }
-      });
-    }
-    if (reflectionsSnap) {
-      reflectionsSnap.forEach((d: any) => {
-        const r = d.data();
-        const ts = r.createdAt || r.timestamp;
-        if (ts) {
-          const dKey = new Date(ts).toISOString().split('T')[0];
-          if (!dailyCounts[dKey]) dailyCounts[dKey] = 1;
-        }
-      });
-    }
-
-    // Today count, monthly solved, active days
-    const todayCount = dailyCounts[todayDateKey] || cachedStats?.todayCount || 0;
-    let monthlySolved = 0;
-    let activeDays = 0;
-    Object.entries(dailyCounts).forEach(([dKey, count]) => {
-      if (dKey.startsWith(currentMonthKey) && count > 0) {
-        monthlySolved += count;
-        activeDays += 1;
-      }
-    });
-
-    // Recent logs
-    const recentLogs: any[] = [...(cachedStats?.recentLogs || [])];
-    if (reflectionsSnap) {
-      reflectionsSnap.forEach((d: any) => {
-        const r = d.data();
-        recentLogs.push({
-          id: r.id || d.id,
-          problemTitle: r.problemTitle || r.problemSlug || 'Practice Reflection',
-          platform: r.platform || 'LeetCode',
-          difficulty: r.feltDifficulty || r.perceivedDifficulty || 'Medium',
-          verdict: 'Accepted',
-          confidence: r.confidence || 4,
-          notes: r.keyTakeaways || r.notes || '',
-          timeSpent: r.timeTakenSeconds ? `${Math.round(r.timeTakenSeconds / 60)}m` : '15m',
-          timeFormatted: new Date(r.createdAt || now).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-          timestamp: r.createdAt || now,
-        });
-      });
-    }
-    recentLogs.sort((a, b) => b.timestamp - a.timestamp);
-
     // Mistakes
     const mistakes: any[] = [];
     if (mistakesSnap) {
       mistakesSnap.forEach((d: any) => mistakes.push(d.data()));
     }
-
-    const streak = gamification?.currentStreak || cachedStats?.streak || (todayCount > 0 ? 1 : 0);
-    const xp = gamification?.xp || 0;
-    const level = gamification?.level || Math.floor(xp / 100) + 1;
-    const dailyGoal = profile?.dailyLimit || cachedStats?.dailyGoal || 3;
 
     return res.json({
       success: true,
@@ -1363,16 +1382,8 @@ app.get('/api/extension/secure/data', authenticateExtensionJwt, async (req, res)
         photoURL: authUser.photoURL,
       },
       stats: {
-        todayCount,
-        dailyGoal,
-        streak,
-        xp,
-        level,
-        monthlySolved,
-        activeDays,
-        dailyCounts,
+        ...authoritativeStats,
         revisionsDueCount,
-        recentLogs: recentLogs.slice(0, 15),
       },
       dailyQueue,
       revisionsDue: revisions.filter((r) => r.status === 'due' || (r.nextReviewAt && r.nextReviewAt <= now)),
@@ -1382,7 +1393,6 @@ app.get('/api/extension/secure/data', authenticateExtensionJwt, async (req, res)
   } catch (err: any) {
     console.warn('[Omega Server] Secure data fetch fallback notice:', err?.message);
     const authUser = (req as any).user as AuthenticatedUser;
-    const cachedStats = userStatsCacheMap.get(authUser?.uid) || (authUser?.email ? userStatsCacheMap.get(authUser.email) : null);
     return res.json({
       success: true,
       user: {
@@ -1390,7 +1400,7 @@ app.get('/api/extension/secure/data', authenticateExtensionJwt, async (req, res)
         email: authUser?.email || null,
         displayName: authUser?.displayName || null,
       },
-      stats: cachedStats || {
+      stats: {
         todayCount: 0,
         dailyGoal: 3,
         streak: 1,
@@ -1590,41 +1600,14 @@ app.post('/api/extension/log', async (req, res) => {
       extensionLogsHistory.pop();
     }
 
-    const userKey = userId || userEmail || 'guest';
-    const now = new Date();
-    const todayDateKey = now.toISOString().split('T')[0];
-    const userStat = userStatsCacheMap.get(userKey) || {
-      userId: userId || 'guest',
-      userEmail: userEmail,
-      todayCount: 0,
-      dailyGoal: 3,
-      streak: 1,
-      dailyCounts: {},
-      monthlySolved: 0,
-      activeDays: 0,
-      recentLogs: [],
-      updatedAt: Date.now(),
-    };
+    const now = Date.now();
+    let authoritativeStats: any = null;
+    if (userId && userId !== 'guest') {
+      try {
+        authoritativeStats = await getUserAuthoritativeStats(userId, userEmail);
+      } catch (e) {}
+    }
 
-    userStat.dailyCounts[todayDateKey] = (userStat.dailyCounts[todayDateKey] || 0) + 1;
-    userStat.todayCount = userStat.dailyCounts[todayDateKey];
-    userStat.recentLogs.unshift({
-      id: logRecord.id,
-      problemTitle: resolvedProblem.title,
-      platform: resolvedProblem.platform,
-      difficulty: log.feltDifficulty || log.difficulty || resolvedProblem.difficulty || 'Medium',
-      verdict: log.verdict || 'Accepted',
-      timeSpent: log.timeSpent || '15m',
-      timeFormatted: new Date(logRecord.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-      timestamp: logRecord.timestamp,
-    });
-    userStat.recentLogs = userStat.recentLogs.slice(0, 30);
-    userStat.updatedAt = Date.now();
-
-    userStatsCacheMap.set(userKey, userStat);
-    if (userId) userStatsCacheMap.set(userId, userStat);
-    if (userEmail) userStatsCacheMap.set(userEmail, userStat);
-    persistStats();
     persistLogs();
 
     return res.json({
@@ -1632,6 +1615,8 @@ app.post('/api/extension/log', async (req, res) => {
       message: 'Log received and synchronized with Omega Cloud.',
       logId: logRecord.id,
       timestamp: logRecord.timestamp,
+      todayCount: authoritativeStats?.todayCount ?? 1,
+      stats: authoritativeStats,
     });
   } catch (err: any) {
     return res.status(500).json({ error: err.message || 'Failed to process extension log' });
@@ -1677,54 +1662,13 @@ app.get('/api/extension/pending-logs', (req, res) => {
   }
 });
 
-// 5. Sync User Stats & Heatmap from Web Dashboard to Cloud Extension Bridge
-app.post('/api/extension/sync-state', (req, res) => {
+// 5. Sync User Stats & Heatmap from Web Dashboard to Cloud Extension Bridge (Safe acknowledge)
+app.post('/api/extension/sync-state', async (req, res) => {
   try {
-    const { userId, userEmail, stats } = req.body;
+    const { userId, userEmail } = req.body;
     if (!userId && !userEmail) {
       return res.status(400).json({ error: 'User identifier required' });
     }
-
-    const key = userId || userEmail;
-    const existing = userStatsCacheMap.get(key) || {
-      userId: userId || 'guest',
-      userEmail,
-      todayCount: 0,
-      dailyGoal: 3,
-      streak: 0,
-      dailyCounts: {},
-      monthlySolved: 0,
-      activeDays: 0,
-      recentLogs: [],
-      updatedAt: Date.now(),
-    };
-
-    const incomingDailyCounts: Record<string, number> =
-      stats?.dailyCounts && typeof stats.dailyCounts === 'object' ? stats.dailyCounts : (existing.dailyCounts || {});
-    const incomingToday = typeof stats?.todayCount === 'number' ? stats.todayCount : existing.todayCount;
-    const incomingStreak = typeof stats?.streak === 'number' ? stats.streak : existing.streak;
-    const incomingGoal = typeof stats?.dailyGoal === 'number' && stats.dailyGoal > 0 ? stats.dailyGoal : existing.dailyGoal;
-    const incomingMonthlySolved = typeof stats?.monthlySolved === 'number' ? stats.monthlySolved : existing.monthlySolved;
-    const incomingActiveDays = typeof stats?.activeDays === 'number' ? stats.activeDays : existing.activeDays;
-    const incomingRecentLogs = Array.isArray(stats?.recentLogs) ? stats.recentLogs : (existing.recentLogs || []);
-
-    const updatedData: UserStatsData = {
-      userId: userId || existing.userId,
-      userEmail: userEmail || existing.userEmail,
-      todayCount: incomingToday,
-      dailyGoal: incomingGoal,
-      streak: incomingStreak,
-      dailyCounts: incomingDailyCounts,
-      monthlySolved: incomingMonthlySolved,
-      activeDays: incomingActiveDays,
-      recentLogs: incomingRecentLogs,
-      updatedAt: Date.now(),
-    };
-
-    userStatsCacheMap.set(key, updatedData);
-    if (userId) userStatsCacheMap.set(userId, updatedData);
-    if (userEmail) userStatsCacheMap.set(userEmail, updatedData);
-    persistStats();
 
     return res.json({ success: true, message: 'Stats synced successfully' });
   } catch (err: any) {
@@ -1733,19 +1677,15 @@ app.post('/api/extension/sync-state', (req, res) => {
 });
 
 // 6. Extension Query: Get User Stats, Today's Solved, Heatmap, Streak, & Recent Logs
-app.get('/api/extension/user-stats', (req, res) => {
+app.get('/api/extension/user-stats', async (req, res) => {
   try {
     const userId = req.query.userId as string | undefined;
     const userEmail = req.query.email as string | undefined;
+    const clientTodayKey = (req.query.todayKey || req.query.todayDateKey || req.headers['x-today-date-key']) as string | undefined;
+    const clientTzOffset = req.query.tzOffset !== undefined ? Number(req.query.tzOffset) : (req.headers['x-timezone-offset'] ? Number(req.headers['x-timezone-offset']) : undefined);
 
-    let stats: UserStatsData | undefined;
-    if (userId && userStatsCacheMap.has(userId)) {
-      stats = userStatsCacheMap.get(userId);
-    } else if (userEmail && userStatsCacheMap.has(userEmail)) {
-      stats = userStatsCacheMap.get(userEmail);
-    }
-
-    if (stats) {
+    if (userId && userId !== 'guest') {
+      const stats = await getUserAuthoritativeStats(userId, userEmail, clientTodayKey, clientTzOffset);
       return res.json({
         success: true,
         hasData: true,
@@ -1756,60 +1696,21 @@ app.get('/api/extension/user-stats', (req, res) => {
         monthlySolved: stats.monthlySolved,
         activeDays: stats.activeDays,
         recentLogs: stats.recentLogs,
-        lastSync: stats.updatedAt || Date.now(),
+        lastSync: stats.updatedAt,
       });
     }
 
-    // Fallback if no synced stats found: synthesize from recent extension logs
-    const relevantLogs = extensionLogsHistory.filter(
-      (r) => (userId && r.userId === userId) || (userEmail && r.userEmail === userEmail)
-    );
-
-    const now = new Date();
-    const todayDateKey = now.toISOString().split('T')[0];
-    const currentMonthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
-
-    const computedDailyCounts: Record<string, number> = {};
-    
-    relevantLogs.forEach((rec) => {
-      const dKey = new Date(rec.timestamp).toISOString().split('T')[0];
-      computedDailyCounts[dKey] = (computedDailyCounts[dKey] || 0) + 1;
-    });
-
-    const todayCount = computedDailyCounts[todayDateKey] || 0;
-
-    let monthlySolved = 0;
-    let activeDays = 0;
-    Object.entries(computedDailyCounts).forEach(([dKey, count]) => {
-      if (dKey.startsWith(currentMonthKey) && count > 0) {
-        monthlySolved += count;
-        activeDays += 1;
-      }
-    });
-
-    const recentLogs = relevantLogs.slice(0, 20).map((r) => ({
-      id: r.id,
-      problemTitle: r.log.problemTitle || r.log.problemSlug || 'LeetCode Problem',
-      platform: r.log.platform || 'LeetCode',
-      difficulty: r.log.feltDifficulty || r.log.difficulty || 'Medium',
-      verdict: r.log.verdict || 'Accepted',
-      timeSpent: r.log.timeSpent || '15m',
-      timeFormatted: new Date(r.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-      timestamp: r.timestamp,
-    }));
-
-    const hasData = !!(relevantLogs.length > 0 || Object.keys(computedDailyCounts).length > 0);
-
+    // Fallback if no user identifier
     return res.json({
       success: true,
-      hasData,
-      todayCount: todayCount,
+      hasData: false,
+      todayCount: 0,
       dailyGoal: 3,
-      streak: todayCount > 0 ? 1 : 0,
-      dailyCounts: computedDailyCounts,
-      monthlySolved: monthlySolved,
-      activeDays: activeDays,
-      recentLogs: recentLogs,
+      streak: 0,
+      dailyCounts: {},
+      monthlySolved: 0,
+      activeDays: 0,
+      recentLogs: [],
       lastSync: Date.now(),
     });
   } catch (err: any) {

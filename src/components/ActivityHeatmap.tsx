@@ -47,17 +47,20 @@ export const ActivityHeatmap: React.FC<ActivityHeatmapProps> = ({
       return map.get(key)!;
     };
 
-    const processedRecordKeys = new Set<string>();
+    const processedDayProblems = new Set<string>();
+    const processedRecordIds = new Set<string>();
 
-    // 1. Process solvingRecords
-    solvingRecords.forEach((rec) => {
+    // 1. Process solvingRecords (primary source of truth)
+    (solvingRecords || []).forEach((rec) => {
       if (!rec.completedAt) return;
-      const dKey = getLocalDateKey(rec.completedAt);
+      const dKey = rec.dateKey || getLocalDateKey(rec.completedAt);
       const entry = getOrCreate(dKey);
-      const uniqueId = `${dKey}-${rec.problemId}-${rec.source || 'solve'}`;
+      const problemKey = `${dKey}_${rec.problemId || rec.id}`;
 
-      if (!processedRecordKeys.has(uniqueId)) {
-        processedRecordKeys.add(uniqueId);
+      if (!processedDayProblems.has(problemKey) && !processedRecordIds.has(rec.id)) {
+        processedDayProblems.add(problemKey);
+        processedRecordIds.add(rec.id);
+        if (rec.reflectionId) processedRecordIds.add(rec.reflectionId);
         entry.total += 1;
         if (rec.source === 'revision' || rec.isRevision) {
           entry.revision += 1;
@@ -67,57 +70,27 @@ export const ActivityHeatmap: React.FC<ActivityHeatmapProps> = ({
       }
     });
 
-    // 2. Process reflections
-    reflections.forEach((ref) => {
+    // 2. Process reflections (fallback for any reflection not linked to a solvingRecord)
+    (reflections || []).forEach((ref) => {
       if (!ref.timestamp) return;
-      const dKey = getLocalDateKey(ref.timestamp);
+      const dKey = ref.dateKey || getLocalDateKey(ref.timestamp);
       const entry = getOrCreate(dKey);
-      const uniqueIdRef = `${dKey}-${ref.problemId}-reflection`;
-      const uniqueIdSolv = `${dKey}-${ref.problemId}-manual`;
-      const uniqueIdGen = `${dKey}-${ref.problemId}-solve`;
+      const problemKey = `${dKey}_${ref.problemId || ref.id}`;
 
-      if (
-        !processedRecordKeys.has(uniqueIdRef) &&
-        !processedRecordKeys.has(uniqueIdSolv) &&
-        !processedRecordKeys.has(uniqueIdGen)
-      ) {
-        processedRecordKeys.add(uniqueIdRef);
+      if (!processedDayProblems.has(problemKey) && !processedRecordIds.has(ref.id)) {
+        processedDayProblems.add(problemKey);
+        processedRecordIds.add(ref.id);
         entry.total += 1;
-        entry.scheduled += 1;
-      }
-    });
-
-    // 3. Process completed dailyQueue items
-    dailyQueue.forEach((item) => {
-      if (item.status === 'completed' && item.dateKey) {
-        const dKey = item.dateKey;
-        const entry = getOrCreate(dKey);
-        const uniqueIdDQ = `${dKey}-${item.problemId}-queue`;
-        const uniqueIdSolv = `${dKey}-${item.problemId}-manual`;
-        const uniqueIdRev = `${dKey}-${item.problemId}-revision`;
-        const uniqueIdGen = `${dKey}-${item.problemId}-solve`;
-        const uniqueIdRef = `${dKey}-${item.problemId}-reflection`;
-
-        if (
-          !processedRecordKeys.has(uniqueIdDQ) &&
-          !processedRecordKeys.has(uniqueIdSolv) &&
-          !processedRecordKeys.has(uniqueIdRev) &&
-          !processedRecordKeys.has(uniqueIdGen) &&
-          !processedRecordKeys.has(uniqueIdRef)
-        ) {
-          processedRecordKeys.add(uniqueIdDQ);
-          entry.total += 1;
-          if (item.isRevision) {
-            entry.revision += 1;
-          } else {
-            entry.scheduled += 1;
-          }
+        if (ref.isRevision) {
+          entry.revision += 1;
+        } else {
+          entry.scheduled += 1;
         }
       }
     });
 
     return map;
-  }, [solvingRecords, reflections, dailyQueue]);
+  }, [solvingRecords, reflections]);
 
   // Compute list of available years for dropdown
   const availableYears = useMemo(() => {

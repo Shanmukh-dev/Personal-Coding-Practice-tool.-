@@ -586,8 +586,9 @@ document.addEventListener('DOMContentLoaded', () => {
     if (!heatmapGrid) return;
     heatmapGrid.innerHTML = '';
 
-    const currentYear = now.getFullYear();
-    const currentMonth = now.getMonth(); // 0-indexed
+    const currentNow = new Date();
+    const currentYear = currentNow.getFullYear();
+    const currentMonth = currentNow.getMonth(); // 0-indexed
 
     const monthNames = [
       'JANUARY', 'FEBRUARY', 'MARCH', 'APRIL', 'MAY', 'JUNE',
@@ -627,14 +628,14 @@ document.addEventListener('DOMContentLoaded', () => {
           const monthStr = String(currentMonth + 1).padStart(2, '0');
           const dateKey = `${currentYear}-${monthStr}-${dayStr}`;
 
-          const count = dailyCounts[dateKey] || 0;
+          const count = (dailyCounts && dailyCounts[dateKey]) || 0;
           totalMonthSolved += count;
           if (count > 0) activeDaysCount++;
 
           const isToday =
-            day === now.getDate() &&
-            currentMonth === now.getMonth() &&
-            currentYear === now.getFullYear();
+            day === currentNow.getDate() &&
+            currentMonth === currentNow.getMonth() &&
+            currentYear === currentNow.getFullYear();
 
           let lvClass = 'lv0';
           if (count === 1) lvClass = 'lv1';

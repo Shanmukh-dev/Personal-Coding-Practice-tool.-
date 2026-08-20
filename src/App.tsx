@@ -252,30 +252,34 @@ export default function App() {
 
         // Calculate aggregate daily counts for heatmap
         const dailyCountsMap: Record<string, number> = {};
+        const processedDayProblems = new Set<string>();
+        const processedRecordIds = new Set<string>();
         const todayDateKey = getLocalDateKey();
 
-        // 1. From solving records
+        // 1. From solving records (primary source)
         (solvingRecords || []).forEach((r) => {
           if (r.completedAt) {
-            const dKey = getLocalDateKey(r.completedAt);
-            dailyCountsMap[dKey] = (dailyCountsMap[dKey] || 0) + 1;
-          }
-        });
-
-        // 2. From reflections (if not already counted)
-        (reflections || []).forEach((ref) => {
-          if (ref.timestamp) {
-            const dKey = getLocalDateKey(ref.timestamp);
-            if (!dailyCountsMap[dKey]) {
-              dailyCountsMap[dKey] = 1;
+            const dKey = r.dateKey || getLocalDateKey(r.completedAt);
+            const problemKey = `${dKey}_${r.problemId || r.id}`;
+            if (!processedDayProblems.has(problemKey) && !processedRecordIds.has(r.id)) {
+              processedDayProblems.add(problemKey);
+              processedRecordIds.add(r.id);
+              if (r.reflectionId) processedRecordIds.add(r.reflectionId);
+              dailyCountsMap[dKey] = (dailyCountsMap[dKey] || 0) + 1;
             }
           }
         });
 
-        // 3. From completed daily queue items
-        (dailyQueue || []).forEach((item) => {
-          if (item.status === 'completed' && item.dateKey) {
-            dailyCountsMap[item.dateKey] = Math.max(dailyCountsMap[item.dateKey] || 0, 1);
+        // 2. From reflections (fallback for unlinked reflections)
+        (reflections || []).forEach((ref) => {
+          if (ref.timestamp) {
+            const dKey = ref.dateKey || getLocalDateKey(ref.timestamp);
+            const problemKey = `${dKey}_${ref.problemId || ref.id}`;
+            if (!processedDayProblems.has(problemKey) && !processedRecordIds.has(ref.id)) {
+              processedDayProblems.add(problemKey);
+              processedRecordIds.add(ref.id);
+              dailyCountsMap[dKey] = (dailyCountsMap[dKey] || 0) + 1;
+            }
           }
         });
 

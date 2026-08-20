@@ -235,6 +235,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         appUrl = appUrl.replace(/\/+$/, '');
 
         const todayKey = getTodayKey();
+        const tzOffset = new Date().getTimezoneOffset();
         let dailyCounts = { ...(res.omega_daily_counts || {}) };
         let logs = Array.isArray(res.omega_logs) ? res.omega_logs : [];
         let todayCount = typeof res.omega_today_count === 'number' ? res.omega_today_count : (dailyCounts[todayKey] || 0);
@@ -259,10 +260,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             let statsResp;
             if (token) {
               // Dedicated secure endpoint with JWT authentication
-              statsResp = await fetch(`${appUrl}/api/extension/secure/data`, {
+              statsResp = await fetch(`${appUrl}/api/extension/secure/data?todayKey=${encodeURIComponent(todayKey)}&tzOffset=${tzOffset}`, {
                 headers: {
                   'Accept': 'application/json',
                   'Authorization': `Bearer ${token}`,
+                  'x-today-date-key': todayKey,
+                  'x-timezone-offset': String(tzOffset),
                 },
               });
             } else {
@@ -270,7 +273,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
               const queryParams = new URLSearchParams();
               if (user.uid) queryParams.set('userId', user.uid);
               if (user.email) queryParams.set('email', user.email);
-              statsResp = await fetch(`${appUrl}/api/extension/user-stats?${queryParams.toString()}`);
+              queryParams.set('todayKey', todayKey);
+              queryParams.set('tzOffset', String(tzOffset));
+              statsResp = await fetch(`${appUrl}/api/extension/user-stats?${queryParams.toString()}`, {
+                headers: {
+                  'x-today-date-key': todayKey,
+                  'x-timezone-offset': String(tzOffset),
+                },
+              });
             }
 
             if (statsResp && statsResp.ok) {
@@ -532,10 +542,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   // 7. Record Practice Log (with JWT authentication & direct Firestore update)
   if (message.type === 'RECORD_LOG') {
     const newLog = message.log;
-    const todayKey = getTodayKey();
 
     chrome.storage.local.get(
-      ['omega_logs', 'omega_daily_counts', 'omega_app_url', 'omega_streak', 'omega_user', 'omega_token'],
+      ['omega_logs', 'omega_app_url', 'omega_user', 'omega_token'],
       async (res) => {
         const user = res.omega_user || null;
         const token = res.omega_token || null;
@@ -544,60 +553,57 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           if (user.email) newLog.userEmail = user.email;
         }
 
-        const logs = res.omega_logs || [];
-        const dailyCounts = res.omega_daily_counts || {};
-        const currentCount = dailyCounts[todayKey] || 0;
-        dailyCounts[todayKey] = currentCount + 1;
+        // Sync directly to Omega server with JWT token
+        const syncResult = await syncToServer(res.omega_app_url || DEFAULT_FALLBACK_URL, newLog, user, token);
+        broadcastLogToOmegaTabs(newLog, user);
 
-        logs.unshift(newLog);
+        if (syncResult && syncResult.success) {
+          const stats = syncResult.stats || {};
+          const confirmedTodayCount = typeof syncResult.todayCount === 'number'
+            ? syncResult.todayCount
+            : (typeof stats.todayCount === 'number' ? stats.todayCount : 1);
 
-        let streak = res.omega_streak || 1;
-        if (currentCount === 0 && !user) {
-          streak += 1;
-        }
+          const updatePayload = {
+            omega_today_count: confirmedTodayCount,
+          };
+          if (stats.dailyCounts) updatePayload.omega_daily_counts = stats.dailyCounts;
+          if (typeof stats.streak === 'number') updatePayload.omega_streak = stats.streak;
+          if (typeof stats.dailyGoal === 'number') updatePayload.omega_daily_goal = stats.dailyGoal;
+          if (Array.isArray(stats.recentLogs)) updatePayload.omega_logs = stats.recentLogs;
+          if (typeof stats.monthlySolved === 'number') updatePayload.omega_monthly_solved = stats.monthlySolved;
+          if (typeof stats.activeDays === 'number') updatePayload.omega_active_days = stats.activeDays;
 
-        chrome.storage.local.set(
-          {
-            omega_logs: logs,
-            omega_daily_counts: dailyCounts,
-            omega_streak: streak,
-          },
-          async () => {
+          chrome.storage.local.set(updatePayload, () => {
             updateBadgeState();
-            // Sync to hosted or local Omega server with JWT token & broadcast to active tabs
-            const syncResult = await syncToServer(res.omega_app_url || DEFAULT_FALLBACK_URL, newLog, user, token);
-            broadcastLogToOmegaTabs(newLog, user);
-
-            if (syncResult && syncResult.success) {
-              sendResponse({
-                success: true,
-                todayCount: dailyCounts[todayKey],
-                dbSynced: true,
-                logId: syncResult.logId,
-                problemId: syncResult.problemId,
-                xpEarned: syncResult.xpEarned,
-                nextReviewAt: syncResult.nextReviewAt,
-                aiAnalysis: syncResult.aiAnalysis,
-                message: syncResult.message || 'Practice log successfully stored in Omega database.',
-              });
-            } else if (syncResult && !syncResult.success && syncResult.error) {
-              sendResponse({
-                success: false,
-                todayCount: dailyCounts[todayKey],
-                dbSynced: false,
-                error: syncResult.error,
-                code: syncResult.code || 'SYNC_ERROR',
-              });
-            } else {
-              sendResponse({
-                success: true,
-                todayCount: dailyCounts[todayKey],
-                dbSynced: false,
-                message: 'Recorded locally in extension storage.',
-              });
-            }
-          }
-        );
+            sendResponse({
+              success: true,
+              todayCount: confirmedTodayCount,
+              dbSynced: true,
+              logId: syncResult.logId,
+              problemId: syncResult.problemId,
+              xpEarned: syncResult.xpEarned,
+              nextReviewAt: syncResult.nextReviewAt,
+              aiAnalysis: syncResult.aiAnalysis,
+              stats: syncResult.stats,
+              message: syncResult.message || 'Practice log successfully stored in Omega database.',
+            });
+          });
+        } else if (syncResult && !syncResult.success && syncResult.error) {
+          sendResponse({
+            success: false,
+            todayCount: 0,
+            dbSynced: false,
+            error: syncResult.error,
+            code: syncResult.code || 'SYNC_ERROR',
+          });
+        } else {
+          sendResponse({
+            success: true,
+            todayCount: 1,
+            dbSynced: false,
+            message: 'Recorded locally.',
+          });
+        }
       }
     );
     return true;
@@ -739,6 +745,9 @@ async function syncToServer(appUrl, logData, user, token) {
 
   let lastError = null;
 
+  const todayKey = getTodayKey();
+  const tzOffset = new Date().getTimezoneOffset();
+
   for (const targetUrl of uniqueUrls) {
     // 1. If JWT token is present, use dedicated secure endpoint backed by Firestore
     if (token) {
@@ -749,9 +758,16 @@ async function syncToServer(appUrl, logData, user, token) {
           headers: {
             'Content-Type': 'application/json',
             'Authorization': `Bearer ${token}`,
+            'x-today-date-key': todayKey,
+            'x-timezone-offset': String(tzOffset),
           },
           body: JSON.stringify({
-            log: logData,
+            log: {
+              ...logData,
+              dateKey: logData.dateKey || todayKey,
+            },
+            todayDateKey: todayKey,
+            tzOffset: tzOffset,
           }),
         });
 
