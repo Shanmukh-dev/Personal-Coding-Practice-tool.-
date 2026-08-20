@@ -52,6 +52,17 @@
         }
       });
     }
+
+    // Sync theme on bridge load
+    if (window.matchMedia && chrome.runtime?.sendMessage) {
+      const isDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+      chrome.runtime.sendMessage({
+        type: 'UPDATE_BROWSER_THEME',
+        theme: isDark ? 'dark' : 'light',
+      }, () => {
+        if (chrome.runtime.lastError) { /* ignore */ }
+      });
+    }
   } catch (err) {
     console.warn('[Omega Extension Bridge] Storage init notice:', err.message);
   }

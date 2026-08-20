@@ -119,9 +119,24 @@ function initializeStorage() {
   );
 }
 
+// Helper to get theme-adaptive icon paths
+// Rule:
+// - Dark-themed browser toolbar -> Use icon with light background (iconXX-light.png) for high contrast
+// - Light-themed browser toolbar -> Use icon with dark background (iconXX-dark.png) for high contrast
+function getIconPaths(theme) {
+  const isDarkBrowser = theme === 'dark';
+  const suffix = isDarkBrowser ? '-light' : '-dark';
+  return {
+    16: `icons/icon16${suffix}.png`,
+    32: `icons/icon32${suffix}.png`,
+    48: `icons/icon48${suffix}.png`,
+    128: `icons/icon128${suffix}.png`,
+  };
+}
+
 // Update Extension Icon Badge text & background color
 function updateBadgeState(explicitEnabled) {
-  chrome.storage.local.get(['omega_enabled', 'omega_daily_counts', 'omega_user'], (res) => {
+  chrome.storage.local.get(['omega_enabled', 'omega_daily_counts', 'omega_user', 'omega_browser_theme'], (res) => {
     const isEnabled =
       explicitEnabled !== undefined
         ? explicitEnabled
@@ -129,26 +144,52 @@ function updateBadgeState(explicitEnabled) {
         ? res.omega_enabled
         : true;
 
+    const browserTheme = res.omega_browser_theme || 'light';
+    const iconPaths = getIconPaths(browserTheme);
+
     if (!isEnabled) {
-      chrome.action.setBadgeText({ text: 'OFF' });
-      chrome.action.setBadgeBackgroundColor({ color: '#64748b' }); // Muted Slate
+      // Inactive: No badge text or indicator dot
+      chrome.action.setBadgeText({ text: '' });
+      try {
+        chrome.action.setIcon({ path: iconPaths });
+      } catch (e) {}
       return;
     }
+
+    // Set theme-adaptive active icon
+    try {
+      chrome.action.setIcon({ path: iconPaths });
+    } catch (e) {}
 
     const todayKey = getTodayKey();
     const count = (res.omega_daily_counts && res.omega_daily_counts[todayKey]) || 0;
     if (count > 0) {
+      // Show solve count alone when active and completed today
       chrome.action.setBadgeText({ text: String(count) });
-      chrome.action.setBadgeBackgroundColor({ color: '#10b981' }); // Emerald
+      chrome.action.setBadgeBackgroundColor({ color: '#10b981' }); // Emerald Green
+      try {
+        if (chrome.action.setBadgeTextColor) {
+          chrome.action.setBadgeTextColor({ color: '#ffffff' });
+        }
+      } catch (e) {}
     } else {
-      chrome.action.setBadgeText({ text: 'ON' });
-      chrome.action.setBadgeBackgroundColor({ color: '#10b981' }); // Emerald
+      // Active with 0 solve count: No dot or text badge
+      chrome.action.setBadgeText({ text: '' });
     }
   });
 }
 
 // Handle messages from content script, bridge & popup
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  // Browser theme change notification from content script / popup
+  if (message.type === 'UPDATE_BROWSER_THEME') {
+    const theme = message.theme === 'dark' ? 'dark' : 'light';
+    chrome.storage.local.set({ omega_browser_theme: theme }, () => {
+      updateBadgeState();
+      sendResponse({ success: true, theme });
+    });
+    return true;
+  }
   // Bridge Notification: Auth updated
   if (message.type === 'UPDATE_AUTH_FROM_BRIDGE') {
     const user = message.user;

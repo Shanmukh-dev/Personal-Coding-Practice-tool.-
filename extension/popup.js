@@ -658,6 +658,19 @@ document.addEventListener('DOMContentLoaded', () => {
     if (monthActiveDays) monthActiveDays.textContent = activeDaysCount;
   }
 
+  // Sync browser theme on popup open
+  try {
+    if (window.matchMedia && chrome.runtime?.sendMessage) {
+      const isDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+      chrome.runtime.sendMessage({
+        type: 'UPDATE_BROWSER_THEME',
+        theme: isDark ? 'dark' : 'light',
+      }, () => {
+        if (chrome.runtime.lastError) { /* ignore */ }
+      });
+    }
+  } catch (e) {}
+
   // Auto-reload data whenever local storage changes
   if (chrome.storage && chrome.storage.onChanged) {
     chrome.storage.onChanged.addListener((changes, areaName) => {

@@ -10,9 +10,9 @@ export interface LogoProps {
 }
 
 /**
- * Version 1: Omega Dark Icon
- * Used when the surrounding interface is in Light Mode (or explicitly requested).
- * Features: Dark background of default dark theme (#0b1326 / #09090b), slate border (#334155), light azure serif glyph (#dae2fd).
+ * Version 1: Omega Dark Icon (matching uploaded 2.png)
+ * Used when the surrounding interface is in Light Mode (or on light browser chrome).
+ * Features: Dark background (#111111), crisp light glyph (#f2f2f2) in Lora font.
  */
 export const OmegaDarkIcon: React.FC<{
   size?: number;
@@ -22,36 +22,30 @@ export const OmegaDarkIcon: React.FC<{
   return (
     <div
       id="omega-dark-icon"
-      className={`relative flex items-center justify-center shrink-0 overflow-hidden shadow-sm transition-all duration-200 ${radius} bg-[#0b1326] text-[#dae2fd] border border-[#334155] ${className}`}
+      className={`relative flex items-center justify-center shrink-0 overflow-hidden shadow-sm transition-all duration-200 ${radius} bg-[#111111] text-[#f2f2f2] border border-zinc-800 select-none ${className}`}
       style={{ width: `${size}px`, height: `${size}px` }}
       aria-label="Omega Dark Icon"
     >
-      <svg
-        viewBox="0 0 100 100"
-        className="w-full h-full p-1"
-        xmlns="http://www.w3.org/2000/svg"
+      <span
+        className="font-bold leading-none select-none flex items-center justify-center pointer-events-none"
+        style={{
+          fontFamily: "'Lora', serif",
+          fontSize: `${Math.round(size * 0.72)}px`,
+          lineHeight: 1,
+          transform: 'translateY(-2%)',
+          color: '#f2f2f2',
+        }}
       >
-        <text
-          x="50"
-          y="54"
-          fontFamily="'Lora', Georgia, 'Times New Roman', serif"
-          fontWeight="bold"
-          fontSize="68"
-          textAnchor="middle"
-          dominantBaseline="central"
-          fill="#dae2fd"
-        >
-          Ω
-        </text>
-      </svg>
+        Ω
+      </span>
     </div>
   );
 };
 
 /**
- * Version 2: Omega Light Icon
- * Used when the surrounding interface is in Dark Mode (or explicitly requested).
- * Features: Light background of the Vellum technical theme (#f7f9fb), slate border (#cbd5e1), dark navy serif glyph (#0b1326).
+ * Version 2: Omega Light Icon (matching uploaded 1.png)
+ * Used when the surrounding interface is in Dark Mode (or on dark browser chrome).
+ * Features: Sleek light background (#ececec), dark glyph (#111111) in Lora font.
  */
 export const OmegaLightIcon: React.FC<{
   size?: number;
@@ -61,28 +55,22 @@ export const OmegaLightIcon: React.FC<{
   return (
     <div
       id="omega-light-icon"
-      className={`relative flex items-center justify-center shrink-0 overflow-hidden shadow-sm transition-all duration-200 ${radius} bg-[#f7f9fb] text-[#0b1326] border border-[#cbd5e1] ${className}`}
+      className={`relative flex items-center justify-center shrink-0 overflow-hidden shadow-sm transition-all duration-200 ${radius} bg-[#ececec] text-[#111111] border border-zinc-300 select-none ${className}`}
       style={{ width: `${size}px`, height: `${size}px` }}
       aria-label="Omega Light Icon"
     >
-      <svg
-        viewBox="0 0 100 100"
-        className="w-full h-full p-1"
-        xmlns="http://www.w3.org/2000/svg"
+      <span
+        className="font-bold leading-none select-none flex items-center justify-center pointer-events-none"
+        style={{
+          fontFamily: "'Lora', serif",
+          fontSize: `${Math.round(size * 0.72)}px`,
+          lineHeight: 1,
+          transform: 'translateY(-2%)',
+          color: '#111111',
+        }}
       >
-        <text
-          x="50"
-          y="54"
-          fontFamily="'Lora', Georgia, 'Times New Roman', serif"
-          fontWeight="bold"
-          fontSize="68"
-          textAnchor="middle"
-          dominantBaseline="central"
-          fill="#0b1326"
-        >
-          Ω
-        </text>
-      </svg>
+        Ω
+      </span>
     </div>
   );
 };
