@@ -61,10 +61,12 @@ export interface Reflection {
   userId: string;
   problemId: string;
   timestamp: number;
+  dateKey?: string;
   confidence: number; // 1-5
   feltDifficulty: Difficulty;
   recognizedPatternImmediately: boolean;
   requiredHintsOrEditorial: boolean;
+  isRevision?: boolean;
   notes?: string;
   improvementAnswers?: {
     speedImprovement?: string;
@@ -84,9 +86,14 @@ export interface SolvingRecord {
   userId: string;
   problemId: string;
   completedAt: number;
+  dateKey?: string;
   source: 'sync' | 'manual' | 'userscript' | 'extension' | 'revision';
   reflectionId?: string;
   isRevision?: boolean;
+  problemTitle?: string;
+  platform?: Platform;
+  verdict?: string;
+  timeSpent?: number;
 }
 
 export interface RevisionCard {

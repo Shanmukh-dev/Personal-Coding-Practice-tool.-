@@ -27,6 +27,7 @@ import { PracticeTopicSelector } from './PracticeTopicSelector';
 import { getProfileAvatarUrl } from '../utils/avatar';
 import { ActivityHeatmap } from './ActivityHeatmap';
 import { getLocalDateKey, getOffsetLocalDateKey } from '../utils/dateUtils';
+import { computeActivityStats } from '../utils/activityStats';
 import { Logo } from './Logo';
 
 interface DashboardProps {
@@ -123,17 +124,18 @@ export const Dashboard: React.FC<DashboardProps> = ({
     );
   }
 
-  // Active queue items for today
+  // Unified activity statistics (matches Heatmap deduplication exactly)
   const todayKey = getLocalDateKey(new Date());
-  const pendingQueue = dailyQueue.filter(
-    (item) =>
-      (item.dateKey === todayKey || item.status === 'carried_over') &&
-      item.status !== 'completed'
-  );
+  const activityStats = computeActivityStats(solvingRecords, reflections);
+  const totalCompletedToday = activityStats.todayCount;
 
-  const startOfToday = new Date();
-  startOfToday.setHours(0, 0, 0, 0);
-  const startOfTodayMs = startOfToday.getTime();
+  // Active queue items for today
+  const todayQueueItems = dailyQueue.filter(
+    (item) => item.dateKey === todayKey || item.status === 'carried_over'
+  );
+  const pendingQueue = todayQueueItems.filter((item) => item.status !== 'completed');
+  const completedQueueCount = todayQueueItems.filter((item) => item.status === 'completed').length;
+  const totalScheduledToday = todayQueueItems.length;
 
   const endOfToday = new Date();
   endOfToday.setHours(23, 59, 59, 999);
@@ -147,52 +149,6 @@ export const Dashboard: React.FC<DashboardProps> = ({
   const upcomingRevisions = revisionCards
     .filter((c) => c.nextReviewAt > endOfTodayMs && c.status !== 'graduated')
     .sort((a, b) => a.nextReviewAt - b.nextReviewAt);
-
-  // 1. Scheduled queue items completed today (non-revision items)
-  const completedScheduledQueue = dailyQueue.filter(
-    (item) =>
-      (item.dateKey === todayKey || item.status === 'carried_over') &&
-      item.status === 'completed' &&
-      !item.isRevision
-  );
-
-  // 2. Solving records created today between startOfTodayMs and endOfTodayMs
-  const recordsToday = (solvingRecords || []).filter(
-    (s) => s.completedAt >= startOfTodayMs && s.completedAt <= endOfTodayMs
-  );
-
-  const reflectionsToday = (reflections || []).filter(
-    (r) => r.timestamp >= startOfTodayMs && r.timestamp <= endOfTodayMs
-  );
-
-  const revisionsFromRecords = recordsToday.filter(
-    (s) => s.source === 'revision' || s.isRevision
-  ).length;
-
-  const revisionsFromQueue = dailyQueue.filter(
-    (item) =>
-      (item.dateKey === todayKey || item.status === 'carried_over') &&
-      item.status === 'completed' &&
-      item.isRevision
-  ).length;
-
-  const revisedTodayCount = Math.max(revisionsFromRecords, revisionsFromQueue);
-
-  const scheduledFromRecords = recordsToday.filter(
-    (s) => s.source !== 'revision' && !s.isRevision
-  ).length;
-
-  const completedQueueCount = Math.max(completedScheduledQueue.length, scheduledFromRecords);
-
-  const totalCompletedToday = Math.max(
-    completedQueueCount + revisedTodayCount,
-    recordsToday.length,
-    reflectionsToday.length
-  );
-  const totalScheduledToday = dailyQueue.filter(
-    (item) => item.dateKey === todayKey || item.status === 'carried_over'
-  ).length;
-  const totalDueRevisionsToday = dueRevisions.length + revisedTodayCount;
 
   // Top improving pattern masteries
   const activeMasteries = patternMasteries

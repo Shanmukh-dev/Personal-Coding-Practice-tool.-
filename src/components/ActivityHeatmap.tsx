@@ -9,6 +9,7 @@ import {
 } from 'lucide-react';
 import { SolvingRecord, Reflection, DailyQueueItem } from '../types';
 import { getLocalDateKey, formatReadableDate } from '../utils/dateUtils';
+import { computeActivityStats } from '../utils/activityStats';
 
 interface ActivityHeatmapProps {
   solvingRecords: SolvingRecord[];
@@ -37,60 +38,11 @@ export const ActivityHeatmap: React.FC<ActivityHeatmapProps> = ({
   const [selectedYear, setSelectedYear] = useState<number>(currentRealYear);
 
   // Calculate daily solved counts mapped by dateKey (YYYY-MM-DD in local time)
-  const dailyMap = useMemo(() => {
-    const map = new Map<string, { total: number; scheduled: number; revision: number }>();
-
-    const getOrCreate = (key: string) => {
-      if (!map.has(key)) {
-        map.set(key, { total: 0, scheduled: 0, revision: 0 });
-      }
-      return map.get(key)!;
-    };
-
-    const processedDayProblems = new Set<string>();
-    const processedRecordIds = new Set<string>();
-
-    // 1. Process solvingRecords (primary source of truth)
-    (solvingRecords || []).forEach((rec) => {
-      if (!rec.completedAt) return;
-      const dKey = rec.dateKey || getLocalDateKey(rec.completedAt);
-      const entry = getOrCreate(dKey);
-      const problemKey = `${dKey}_${rec.problemId || rec.id}`;
-
-      if (!processedDayProblems.has(problemKey) && !processedRecordIds.has(rec.id)) {
-        processedDayProblems.add(problemKey);
-        processedRecordIds.add(rec.id);
-        if (rec.reflectionId) processedRecordIds.add(rec.reflectionId);
-        entry.total += 1;
-        if (rec.source === 'revision' || rec.isRevision) {
-          entry.revision += 1;
-        } else {
-          entry.scheduled += 1;
-        }
-      }
-    });
-
-    // 2. Process reflections (fallback for any reflection not linked to a solvingRecord)
-    (reflections || []).forEach((ref) => {
-      if (!ref.timestamp) return;
-      const dKey = ref.dateKey || getLocalDateKey(ref.timestamp);
-      const entry = getOrCreate(dKey);
-      const problemKey = `${dKey}_${ref.problemId || ref.id}`;
-
-      if (!processedDayProblems.has(problemKey) && !processedRecordIds.has(ref.id)) {
-        processedDayProblems.add(problemKey);
-        processedRecordIds.add(ref.id);
-        entry.total += 1;
-        if (ref.isRevision) {
-          entry.revision += 1;
-        } else {
-          entry.scheduled += 1;
-        }
-      }
-    });
-
-    return map;
+  const activityStats = useMemo(() => {
+    return computeActivityStats(solvingRecords, reflections);
   }, [solvingRecords, reflections]);
+
+  const dailyMap = activityStats.dailyMap;
 
   // Compute list of available years for dropdown
   const availableYears = useMemo(() => {

@@ -27,6 +27,7 @@ import {
   ReviewOutcome,
 } from './types';
 import { getLocalDateKey } from './utils/dateUtils';
+import { computeActivityStats, computeMonthActivityMetrics } from './utils/activityStats';
 import {
   getUserProfile,
   setUserProfile,
@@ -250,52 +251,18 @@ export default function App() {
           );
         }
 
-        // Calculate aggregate daily counts for heatmap
-        const dailyCountsMap: Record<string, number> = {};
-        const processedDayProblems = new Set<string>();
-        const processedRecordIds = new Set<string>();
-        const todayDateKey = getLocalDateKey();
-
-        // 1. From solving records (primary source)
-        (solvingRecords || []).forEach((r) => {
-          if (r.completedAt) {
-            const dKey = r.dateKey || getLocalDateKey(r.completedAt);
-            const problemKey = `${dKey}_${r.problemId || r.id}`;
-            if (!processedDayProblems.has(problemKey) && !processedRecordIds.has(r.id)) {
-              processedDayProblems.add(problemKey);
-              processedRecordIds.add(r.id);
-              if (r.reflectionId) processedRecordIds.add(r.reflectionId);
-              dailyCountsMap[dKey] = (dailyCountsMap[dKey] || 0) + 1;
-            }
-          }
-        });
-
-        // 2. From reflections (fallback for unlinked reflections)
-        (reflections || []).forEach((ref) => {
-          if (ref.timestamp) {
-            const dKey = ref.dateKey || getLocalDateKey(ref.timestamp);
-            const problemKey = `${dKey}_${ref.problemId || ref.id}`;
-            if (!processedDayProblems.has(problemKey) && !processedRecordIds.has(ref.id)) {
-              processedDayProblems.add(problemKey);
-              processedRecordIds.add(ref.id);
-              dailyCountsMap[dKey] = (dailyCountsMap[dKey] || 0) + 1;
-            }
-          }
-        });
+        // Calculate aggregate daily counts and stats using unified activityStats engine
+        const activityStats = computeActivityStats(solvingRecords, reflections);
+        const dailyCountsMap = activityStats.dailyCountsRecord;
 
         const now = new Date();
-        const currentMonthPrefix = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
-        let monthlySolved = 0;
-        let activeDays = 0;
+        const { monthlySolved, activeDays } = computeMonthActivityMetrics(
+          activityStats.dailyMap,
+          now.getFullYear(),
+          now.getMonth()
+        );
 
-        Object.entries(dailyCountsMap).forEach(([dKey, count]) => {
-          if (dKey.startsWith(currentMonthPrefix) && count > 0) {
-            monthlySolved += count;
-            activeDays += 1;
-          }
-        });
-
-        const todayCount = dailyCountsMap[todayDateKey] || 0;
+        const todayCount = activityStats.todayCount;
         const streak = gamification?.currentStreak || (todayCount > 0 ? 1 : 0);
         const dailyGoal = userProfile?.dailyLimit || 3;
 
@@ -1723,9 +1690,13 @@ export default function App() {
   const dueRevisions = revisionCards.filter(
     (c) => c.nextReviewAt <= now && c.status !== 'graduated'
   ).length;
-  const completedQueueCount = dailyQueue.filter((i) => i.status === 'completed').length;
+  const todayKeyStr = getLocalDateKey();
+  const todayQueueItems = dailyQueue.filter(
+    (i) => i.dateKey === todayKeyStr || i.status === 'carried_over'
+  );
+  const completedQueueCount = todayQueueItems.filter((i) => i.status === 'completed').length;
   const queueProgressText =
-    dailyQueue.length > 0 ? `${completedQueueCount}/${dailyQueue.length}` : undefined;
+    todayQueueItems.length > 0 ? `${completedQueueCount}/${todayQueueItems.length}` : undefined;
 
   const handleThemeChange = async (mode: ThemeMode) => {
     localStorage.setItem('algo_os_theme', mode);
@@ -1924,7 +1895,7 @@ export default function App() {
               userProfile={userProfile}
               connections={connections}
               gamification={gamification}
-              solvedCount={solvingRecords.length}
+              solvedCount={computeActivityStats(solvingRecords, reflections).allTimeSolvedCount}
               onSaveProfile={handleSaveOnboarding}
               onOpenAuth={() => setIsAuthOpen(true)}
               onSignOut={handleSignOut}
