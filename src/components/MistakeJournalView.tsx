@@ -44,7 +44,23 @@ export const MistakeJournalView: React.FC<MistakeJournalViewProps> = ({
     }
   };
 
-  if (mistakes.length === 0 && !isAdding) {
+  // Deduplicate mistakes defensively
+  const uniqueMistakes = React.useMemo(() => {
+    const seen = new Set<string>();
+    const list: MistakeEntry[] = [];
+    for (const m of mistakes) {
+      const timeWindow = Math.floor(((m as any).timestamp || (m as any).occurredAt || 0) / 60000);
+      const key = `${m.problemId || ''}_${m.mistakeType || ''}_${(m.description || '').trim().toLowerCase()}_${timeWindow}`;
+      if (!seen.has(key) && !seen.has(m.id)) {
+        seen.add(key);
+        seen.add(m.id);
+        list.push(m);
+      }
+    }
+    return list;
+  }, [mistakes]);
+
+  if (uniqueMistakes.length === 0 && !isAdding) {
     return (
       <div className="max-w-4xl mx-auto py-16 px-4 text-center">
         <div className="w-12 h-12 rounded-xl bg-zinc-900 border border-zinc-800 flex items-center justify-center text-zinc-500 mx-auto mb-4">
@@ -66,7 +82,7 @@ export const MistakeJournalView: React.FC<MistakeJournalViewProps> = ({
   }
 
   // Group mistakes by DSA pattern
-  const grouped = mistakes.reduce((acc, m) => {
+  const grouped = uniqueMistakes.reduce((acc, m) => {
     acc[m.patternId] = acc[m.patternId] || [];
     acc[m.patternId].push(m);
     return acc;
@@ -80,7 +96,7 @@ export const MistakeJournalView: React.FC<MistakeJournalViewProps> = ({
             Error Elimination Engine
           </span>
           <h1 className="text-2xl font-bold text-zinc-100 mt-0.5">
-            Mistake Journal ({mistakes.length})
+            Mistake Journal ({uniqueMistakes.length})
           </h1>
           <p className="text-xs text-zinc-400 max-w-lg mt-1">
             Track implementation bugs, off-by-one errors, and misunderstood edge cases grouped by pattern.

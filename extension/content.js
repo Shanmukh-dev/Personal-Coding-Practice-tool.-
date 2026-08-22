@@ -509,19 +509,20 @@
   }
 
   // Safe background messaging with retries and direct storage fallbacks
-  function safeSendMessage(message, onResponse, onFallback) {
+  function safeSendMessage(message, onResponse, onFallback, customTimeoutMs) {
     if (!isExtensionContextValid()) {
       if (typeof onFallback === 'function') onFallback();
       return;
     }
 
     let isHandled = false;
+    const timeoutLimit = typeof customTimeoutMs === 'number' ? customTimeoutMs : 2500;
     const timeout = setTimeout(() => {
       if (!isHandled) {
         isHandled = true;
         if (typeof onFallback === 'function') onFallback();
       }
-    }, 1200);
+    }, timeoutLimit);
 
     try {
       chrome.runtime.sendMessage(message, (response) => {
@@ -1348,7 +1349,11 @@
     // Submit handler
     submitBtn.addEventListener('click', async () => {
       submitBtn.disabled = true;
-      submitBtn.innerHTML = `<span>Saving & Syncing Dashboard...</span>`;
+      submitBtn.innerHTML = `<span class="omega-spinner"></span><span>Saving & Syncing to Cloud...</span>`;
+
+      // Clear any prior error message
+      const prevErr = modalBox.querySelector('.omega-error-alert');
+      if (prevErr) prevErr.remove();
 
       const reflectionLog = {
         id: `ext-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
@@ -1412,73 +1417,30 @@
           errBanner = document.createElement('div');
           errBanner.className = 'omega-error-alert';
           errBanner.style.cssText = 'background: rgba(239, 68, 68, 0.15); border: 1px solid rgba(239, 68, 68, 0.4); color: #f87171; border-radius: 8px; padding: 10px 12px; margin-bottom: 12px; font-size: 13px; line-height: 1.4;';
-          modalBox.insertBefore(errBanner, modalBox.querySelector('.omega-footer'));
+          const footer = modalBox.querySelector('.omega-modal-footer') || modalBox.querySelector('.omega-footer');
+          if (footer) {
+            modalBox.insertBefore(errBanner, footer);
+          } else {
+            modalBox.appendChild(errBanner);
+          }
         }
         errBanner.innerHTML = `<strong>Sync Notice:</strong> ${escapeHtml(errMsg || 'Failed to update database. Please verify your connection.')}`;
       };
 
-      // Fallback local save function in case service worker is asleep or reloaded
-      const performLocalFallbackSave = () => {
-        try {
-          if (typeof chrome !== 'undefined' && chrome.storage?.local) {
-            chrome.storage.local.get(
-              ['omega_logs', 'omega_daily_counts', 'omega_streak', 'omega_app_url', 'omega_user', 'omega_token'],
-              (res) => {
-                if (!res) return;
-                const user = res.omega_user || null;
-                const token = res.omega_token || null;
-                if (user) {
-                  if (user.uid) reflectionLog.userId = user.uid;
-                  if (user.email) reflectionLog.userEmail = user.email;
-                }
-                const logs = res.omega_logs || [];
-                logs.unshift(reflectionLog);
-                const d = new Date();
-                const todayKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-                const dailyCounts = res.omega_daily_counts || {};
-                dailyCounts[todayKey] = (dailyCounts[todayKey] || 0) + 1;
-
-                chrome.storage.local.set({
-                  omega_logs: logs,
-                  omega_daily_counts: dailyCounts,
-                  omega_streak: (res.omega_streak || 0) + (dailyCounts[todayKey] === 1 ? 1 : 0),
-                });
-
-                // Direct POST to server if online
-                const appUrl = (res.omega_app_url || 'https://omega-dsa.ai.studio').replace(/\/+$/, '');
-                const targetEndpoint = token ? `${appUrl}/api/extension/secure/log` : `${appUrl}/api/extension/log`;
-                const headers = { 'Content-Type': 'application/json' };
-                if (token) headers['Authorization'] = `Bearer ${token}`;
-
-                fetch(targetEndpoint, {
-                  method: 'POST',
-                  headers,
-                  body: JSON.stringify({
-                    log: reflectionLog,
-                    userId: user ? user.uid : 'guest',
-                    userEmail: user ? user.email : undefined,
-                  }),
-                }).catch(() => {});
-              }
-            );
-          }
-        } catch (e) {}
-      };
-
-      // Send to background service worker with fallback
+      // Send to background service worker with 15s timeout
       safeSendMessage(
         { type: 'RECORD_LOG', log: reflectionLog },
         (resp) => {
-          if (resp && resp.success === false && resp.error) {
-            showErrorAlert(resp.error);
-          } else {
+          if (resp && resp.success) {
             showSuccessAndClose(resp);
+          } else {
+            showErrorAlert(resp?.error || 'Database sync failed. Please check connection and retry.');
           }
         },
         () => {
-          performLocalFallbackSave();
-          showSuccessAndClose({ message: 'Saved locally in extension cache' });
-        }
+          showErrorAlert('Connection timed out while contacting server. Please check your connection and retry.');
+        },
+        15000
       );
     });
   }

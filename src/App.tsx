@@ -408,15 +408,9 @@ export default function App() {
   // Track processed extension log IDs to prevent duplicate additions
   const processedLogIdsRef = React.useRef<Set<string>>(new Set());
 
-  // Ingest logs automatically captured from the Chrome Extension & write to database
+  // Ingest logs automatically captured from the Chrome Extension & sync local state
   const ingestExtensionLog = async (rawLog: any) => {
     if (!rawLog) return;
-    const logId = rawLog.id || `ext-${rawLog.timestamp || Date.now()}`;
-    if (processedLogIdsRef.current.has(logId)) return;
-    processedLogIdsRef.current.add(logId);
-
-    const uid = currentUserRef.current?.uid || auth.currentUser?.uid || (rawLog.userId && rawLog.userId !== 'guest' ? rawLog.userId : 'guest');
-    const isAuthed = Boolean(auth.currentUser?.uid || (uid && uid !== 'guest'));
     const timestamp = rawLog.timestamp || Date.now();
     const title = rawLog.problemTitle || rawLog.problemSlug || rawLog.title || 'Practice Problem';
     const slug = rawLog.problemSlug || rawLog.slug || title.toLowerCase().replace(/[^a-z0-9]+/g, '-');
@@ -424,7 +418,33 @@ export default function App() {
     const url = rawLog.problemUrl || rawLog.url || `https://leetcode.com/problems/${slug}`;
     const difficulty = rawLog.feltDifficulty || rawLog.difficulty || 'Medium';
 
-    // 1. Smart Comparison System: Check if problem exists in catalog (regular and Striver list)
+    // Derive deterministic canonical IDs
+    const incomingBaseId = rawLog.id || rawLog.rawLogId || rawLog.logId || `${slug}-${Math.floor(timestamp / 2000)}`;
+    const cleanBaseId = String(incomingBaseId).replace(/^(ref-|solv-|mist-|ext-)/, '');
+    const refId = `ref-${cleanBaseId}`;
+    const solvId = `solv-${cleanBaseId}`;
+    const mistakeId = `mist-${cleanBaseId}`;
+    const timeWindowKey = `${slug}_${Math.floor(timestamp / 10000)}`;
+
+    if (
+      processedLogIdsRef.current.has(refId) ||
+      processedLogIdsRef.current.has(solvId) ||
+      processedLogIdsRef.current.has(cleanBaseId) ||
+      (rawLog.id && processedLogIdsRef.current.has(rawLog.id)) ||
+      processedLogIdsRef.current.has(timeWindowKey)
+    ) {
+      return;
+    }
+    processedLogIdsRef.current.add(refId);
+    processedLogIdsRef.current.add(solvId);
+    processedLogIdsRef.current.add(cleanBaseId);
+    if (rawLog.id) processedLogIdsRef.current.add(rawLog.id);
+    processedLogIdsRef.current.add(timeWindowKey);
+
+    const uid = currentUserRef.current?.uid || auth.currentUser?.uid || (rawLog.userId && rawLog.userId !== 'guest' ? rawLog.userId : 'guest');
+    const isAuthed = Boolean(auth.currentUser?.uid || (uid && uid !== 'guest'));
+
+    // 1. Smart Comparison System: Check if problem exists in catalog
     let matchedProblem = findMatchingProblem(
       {
         id: rawLog.problemId,
@@ -482,7 +502,6 @@ export default function App() {
     }
 
     // 2. Build Reflection Record
-    const refId = `ref-${logId}`;
     const newReflection: Reflection = {
       id: refId,
       userId: uid,
@@ -505,15 +524,15 @@ export default function App() {
           : undefined),
     };
 
-    if (isAuthed && uid !== 'guest') {
-      await saveReflection(uid, newReflection);
-    }
-    const updatedReflections = [newReflection, ...reflectionsRef.current.filter((r) => r.id !== refId)];
+    // Deduplicate and update reflections in React state
+    const updatedReflections = [
+      newReflection,
+      ...reflectionsRef.current.filter((r) => r.id !== refId && !(r.problemId === matchedProblem!.id && Math.abs((r.timestamp || 0) - timestamp) < 30000)),
+    ];
     setReflections(updatedReflections);
     reflectionsRef.current = updatedReflections;
 
     // 3. Build Solving Record
-    const solvId = `solv-${logId}`;
     const newSolving: SolvingRecord = {
       id: solvId,
       userId: uid,
@@ -524,10 +543,10 @@ export default function App() {
       isRevision: Boolean(rawLog.isRevision),
     };
 
-    if (isAuthed && uid !== 'guest') {
-      await saveSolvingRecord(uid, newSolving);
-    }
-    const updatedSolvings = [newSolving, ...solvingRecordsRef.current.filter((s) => s.id !== solvId)];
+    const updatedSolvings = [
+      newSolving,
+      ...solvingRecordsRef.current.filter((s) => s.id !== solvId && !(s.problemId === matchedProblem!.id && Math.abs((s.completedAt || 0) - timestamp) < 30000)),
+    ];
     setSolvingRecords(updatedSolvings);
     solvingRecordsRef.current = updatedSolvings;
 
@@ -541,9 +560,6 @@ export default function App() {
     else outcome = 'Forgot';
 
     const nextCard = calculateNextRevision(existingRev, matchedProblem.id, uid, outcome);
-    if (isAuthed && uid !== 'guest') {
-      await saveRevisionCard(uid, nextCard);
-    }
     const updatedRevisionCards = [...revisionCardsRef.current.filter((c) => c.id !== nextCard.id), nextCard];
     setRevisionCards(updatedRevisionCards);
     revisionCardsRef.current = updatedRevisionCards;
@@ -564,19 +580,8 @@ export default function App() {
       isRevision: true,
       addedAt: timestamp,
     };
-    if (isAuthed && uid !== 'guest') {
-      await saveDailyQueueItem(uid, futureQueueItem);
-    }
 
     // 5. Update Daily Queue if item exists today
-    const queueItems = dailyQueueRef.current.filter((i) => i.problemId === matchedProblem!.id);
-    if (queueItems.length > 0) {
-      if (isAuthed && uid !== 'guest') {
-        for (const qItem of queueItems) {
-          await updateDailyQueueItemStatus(uid, qItem.id, 'completed');
-        }
-      }
-    }
     const updatedDailyQueue = [
       ...dailyQueueRef.current
         .filter((i) => !(i.problemId === matchedProblem!.id && i.dateKey === nextRevDateKey))
@@ -592,41 +597,11 @@ export default function App() {
     const prevReflHistory = Array.isArray(existingMem?.reflectionHistory) ? existingMem.reflectionHistory : [];
     const prevInsights = Array.isArray(existingMem?.keyInsights) ? existingMem.keyInsights : [];
 
-    const newMem: LearningMemory = {
-      problemId: matchedProblem.id,
-      userId: uid,
-      firstSolvedDate: existingMem?.firstSolvedDate || timestamp,
-      lastReviewedDate: timestamp,
-      reviewCount: (existingMem?.reviewCount || 0) + 1,
-      confidenceHistory: [
-        ...prevConfHistory,
-        { timestamp: timestamp, score: newReflection.confidence },
-      ],
-      reflectionHistory: [
-        newReflection,
-        ...prevReflHistory.filter((r) => r.id !== refId),
-      ],
-      mistakes: Array.isArray(existingMem?.mistakes) ? existingMem.mistakes : [],
-      keyInsights: newReflection.notes && !prevInsights.includes(newReflection.notes)
-        ? [...prevInsights, newReflection.notes]
-        : prevInsights,
-    };
-
-    if (isAuthed && uid !== 'guest') {
-      await saveLearningMemory(uid, newMem);
-    }
-    const updatedMemories = [
-      ...memoriesRef.current.filter((m) => m.problemId !== matchedProblem!.id),
-      newMem,
-    ];
-    setMemories(updatedMemories);
-    memoriesRef.current = updatedMemories;
-
-    // 7. Update Mistake Journal if hints or low confidence occurred
+    // Deduplicate mistakes for this problem
     let updatedMistakes = mistakesRef.current;
+    let newMistake: MistakeEntry | null = null;
     if (newReflection.requiredHintsOrEditorial || newReflection.confidence <= 2) {
-      const mistakeId = `mist-${logId}`;
-      const newMistake: MistakeEntry = {
+      newMistake = {
         id: mistakeId,
         userId: uid,
         patternId: matchedProblem.dsaPatterns?.[0] || 'General',
@@ -637,19 +612,57 @@ export default function App() {
         description: newReflection.notes || 'Needed hints / editorial assistance during solution.',
         timestamp: timestamp,
       };
-      if (isAuthed && uid !== 'guest') {
-        await saveMistake(uid, newMistake);
-      }
-      updatedMistakes = [newMistake, ...mistakesRef.current.filter((m) => m.id !== mistakeId)];
+
+      updatedMistakes = [
+        newMistake,
+        ...mistakesRef.current.filter((m) => {
+          if (m.id === mistakeId) return false;
+          if (m.problemId === matchedProblem!.id && m.description === newMistake!.description && Math.abs((m.timestamp || 0) - timestamp) < 60000) return false;
+          return true;
+        }),
+      ];
       setMistakes(updatedMistakes);
       mistakesRef.current = updatedMistakes;
-
-      // Also append to the memory mistakes list
-      newMem.mistakes = [newMistake, ...(newMem.mistakes || []).filter((m) => m.id !== mistakeId)];
-      if (isAuthed && uid !== 'guest') {
-        await saveLearningMemory(uid, newMem);
-      }
     }
+
+    const prevMemMistakes = Array.isArray(existingMem?.mistakes) ? existingMem.mistakes : [];
+    const updatedMemMistakes = newMistake
+      ? [
+          newMistake,
+          ...prevMemMistakes.filter((m) => {
+            if (m.id === newMistake!.id) return false;
+            if (m.description === newMistake!.description && Math.abs((m.timestamp || 0) - timestamp) < 60000) return false;
+            return true;
+          }),
+        ]
+      : prevMemMistakes;
+
+    const newMem: LearningMemory = {
+      problemId: matchedProblem.id,
+      userId: uid,
+      firstSolvedDate: existingMem?.firstSolvedDate || timestamp,
+      lastReviewedDate: timestamp,
+      reviewCount: (existingMem?.reviewCount || 0) + 1,
+      confidenceHistory: [
+        ...prevConfHistory.filter((c) => Math.abs((c.timestamp || 0) - timestamp) > 30000),
+        { timestamp: timestamp, score: newReflection.confidence },
+      ],
+      reflectionHistory: [
+        newReflection,
+        ...prevReflHistory.filter((r) => r.id !== refId && Math.abs((r.timestamp || 0) - timestamp) > 30000),
+      ],
+      mistakes: updatedMemMistakes,
+      keyInsights: newReflection.notes && !prevInsights.some((ins) => ins.trim().toLowerCase() === newReflection.notes.trim().toLowerCase())
+        ? [...prevInsights, newReflection.notes]
+        : prevInsights,
+    };
+
+    const updatedMemories = [
+      ...memoriesRef.current.filter((m) => m.problemId !== matchedProblem!.id),
+      newMem,
+    ];
+    setMemories(updatedMemories);
+    memoriesRef.current = updatedMemories;
 
     // 8. Recompute Pattern Taxonomy across all updated collections
     const updatedTaxonomy = computePatternTaxonomy({
@@ -660,11 +673,6 @@ export default function App() {
       catalog: catalogRef.current,
     });
     setPatternMasteries(updatedTaxonomy);
-    if (isAuthed && uid !== 'guest') {
-      for (const m of updatedTaxonomy) {
-        await savePatternMastery(uid, m);
-      }
-    }
 
     // 9. Update Gamification Progress
     const { nextState: updatedGamification } = updateGamificationProgress(
@@ -681,9 +689,6 @@ export default function App() {
     );
     setGamification(updatedGamification);
     gamificationRef.current = updatedGamification;
-    if (isAuthed && uid !== 'guest') {
-      await setUserGamification(uid, updatedGamification);
-    }
   };
 
   // Poll server periodically for pending extension logs submitted from other tabs or background
@@ -794,13 +799,62 @@ export default function App() {
           getUserGamification(uid),
         ]);
 
+      // Clean and deduplicate loaded sub-collections
+      const uniqueMistakes: MistakeEntry[] = [];
+      const seenMistakeKeys = new Set<string>();
+      for (const m of mist) {
+        const timeWindow = Math.floor((m.timestamp || 0) / 60000);
+        const key = `${m.problemId || ''}_${m.mistakeType || ''}_${(m.description || '').trim().toLowerCase()}_${timeWindow}`;
+        if (!seenMistakeKeys.has(key) && !seenMistakeKeys.has(m.id)) {
+          seenMistakeKeys.add(key);
+          seenMistakeKeys.add(m.id);
+          uniqueMistakes.push(m);
+        }
+      }
+
+      const uniqueMemories = mems.map((mem) => {
+        const refHist = Array.isArray(mem.reflectionHistory) ? mem.reflectionHistory : [];
+        const seenRefTimes = new Set<number>();
+        const cleanRefHist = refHist.filter((r) => {
+          const tw = Math.floor((r.timestamp || 0) / 30000);
+          if (seenRefTimes.has(tw)) return false;
+          seenRefTimes.add(tw);
+          return true;
+        });
+
+        const memMist = Array.isArray(mem.mistakes) ? mem.mistakes : [];
+        const seenMemMist = new Set<string>();
+        const cleanMemMist = memMist.filter((m) => {
+          const tw = Math.floor((m.timestamp || 0) / 60000);
+          const k = `${(m.description || '').trim().toLowerCase()}_${tw}`;
+          if (seenMemMist.has(k)) return false;
+          seenMemMist.add(k);
+          return true;
+        });
+
+        const seenInsights = new Set<string>();
+        const cleanInsights = (Array.isArray(mem.keyInsights) ? mem.keyInsights : []).filter((ins) => {
+          const norm = (ins || '').trim().toLowerCase();
+          if (!norm || seenInsights.has(norm)) return false;
+          seenInsights.add(norm);
+          return true;
+        });
+
+        return {
+          ...mem,
+          reflectionHistory: cleanRefHist,
+          mistakes: cleanMemMist,
+          keyInsights: cleanInsights,
+        };
+      });
+
       setConnections(conns);
       setDailyQueue(dq);
       setRevisionCards(revs);
       setReflections(refs);
       setSolvingRecords(solv);
-      setMistakes(mist);
-      setMemories(mems);
+      setMistakes(uniqueMistakes);
+      setMemories(uniqueMemories);
       setCoachMessages(msgs);
       setGamification(gami);
 
@@ -813,8 +867,8 @@ export default function App() {
       const computedTaxonomy = computePatternTaxonomy({
         solvingRecords: solv,
         reflections: refs,
-        memories: mems,
-        mistakes: mist,
+        memories: uniqueMemories,
+        mistakes: uniqueMistakes,
         catalog: catList,
       });
 
@@ -981,63 +1035,161 @@ export default function App() {
     recognizedPatternImmediately: boolean;
     requiredHintsOrEditorial: boolean;
     notes: string;
+    improvementAnswers?: {
+      speedImprovement?: string;
+      avoidedPreviousMistakes?: string;
+      interviewReadiness?: string;
+    };
   }) => {
     if (!reflectionProblem) return;
 
     const uid = currentUser?.uid || 'guest';
+    const existingRev = revisionCards.find((c) => c.problemId === reflectionProblem.id) || null;
+    const now = Date.now();
+    const d = new Date(now);
+    const todayKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    const tzOffset = d.getTimezoneOffset();
 
-    // Call server AI reflection analysis
-    let aiAnalysis = undefined;
+    // 1. Post to backend endpoint to ensure synchronized server state & AI analysis
+    let aiAnalysis: string | undefined = undefined;
+    let serverResponse: any = null;
+
+    const clientBaseId = `${reflectionProblem.id}-${Math.floor(now / 2000)}`;
+    const refId = `ref-${clientBaseId}`;
+    const solvId = `solv-${clientBaseId}`;
+    const mistakeId = `mist-${clientBaseId}`;
+    const timeWindowKey = `${reflectionProblem.id}_${Math.floor(now / 10000)}`;
+
+    processedLogIdsRef.current.add(refId);
+    processedLogIdsRef.current.add(solvId);
+    processedLogIdsRef.current.add(clientBaseId);
+    processedLogIdsRef.current.add(timeWindowKey);
+
+    const logPayload = {
+      id: refId,
+      problemId: reflectionProblem.id,
+      problemTitle: reflectionProblem.title,
+      problemSlug: reflectionProblem.slug || reflectionProblem.id,
+      problemUrl: reflectionProblem.url || `https://leetcode.com/problems/${reflectionProblem.slug || reflectionProblem.id}`,
+      platform: reflectionProblem.platform || 'LeetCode',
+      feltDifficulty: data.feltDifficulty,
+      confidence: data.confidence,
+      recognizedPatternImmediately: data.recognizedPatternImmediately,
+      requiredHintsOrEditorial: data.requiredHintsOrEditorial,
+      notes: data.notes,
+      isRevision: !!existingRev,
+      improvementAnswers: data.improvementAnswers,
+      timestamp: now,
+      source: 'web_dashboard',
+      dateKey: todayKey,
+      userId: uid,
+      userEmail: currentUser?.email || undefined,
+    };
+
+    let isServerPersisted = false;
     try {
-      const aiRes = await fetch('/api/ai/analyze-reflection', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ reflection: data, problem: reflectionProblem }),
-      });
-      if (aiRes.ok) {
-        const aiData = await aiRes.json();
-        aiAnalysis = aiData.analysis;
+      const endpoint = extensionJwtToken ? '/api/extension/secure/log' : '/api/extension/log';
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+        'x-today-date-key': todayKey,
+        'x-timezone-offset': String(tzOffset),
+      };
+      if (extensionJwtToken) {
+        headers['Authorization'] = `Bearer ${extensionJwtToken}`;
       }
-    } catch (e) {
-      console.warn('AI reflection analysis failed:', e);
+
+      const res = await fetch(endpoint, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          log: logPayload,
+          userId: uid,
+          userEmail: currentUser?.email || undefined,
+          todayDateKey: todayKey,
+          tzOffset,
+        }),
+      });
+
+      if (res.ok) {
+        serverResponse = await res.json();
+        if (serverResponse?.success) {
+          isServerPersisted = true;
+        }
+        if (serverResponse?.aiAnalysis) {
+          aiAnalysis = serverResponse.aiAnalysis;
+        }
+      }
+    } catch (apiErr) {
+      console.warn('Backend endpoint log post error (using fallback local flow):', apiErr);
+    }
+
+    // Fallback AI reflection analysis if not provided by the log endpoint
+    let rawAiAnalysis: any = aiAnalysis;
+    if (!rawAiAnalysis) {
+      try {
+        const aiRes = await fetch('/api/ai/analyze-reflection', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ reflection: data, problem: reflectionProblem }),
+        });
+        if (aiRes.ok) {
+          const aiData = await aiRes.json();
+          rawAiAnalysis = aiData.analysis;
+        }
+      } catch (e) {
+        console.warn('AI reflection analysis fallback error:', e);
+      }
+    }
+
+    let formattedAiAnalysis: Reflection['aiAnalysis'] = undefined;
+    if (rawAiAnalysis) {
+      if (typeof rawAiAnalysis === 'object' && rawAiAnalysis.summary) {
+        formattedAiAnalysis = rawAiAnalysis;
+      } else if (typeof rawAiAnalysis === 'string') {
+        formattedAiAnalysis = {
+          summary: rawAiAnalysis,
+          identifiedMistakes: [],
+          suggestedFocus: 'Focus on pattern consistency and clean constraints analysis.',
+        };
+      }
     }
 
     // Create reflection doc
-    const refId = `ref-${Date.now()}`;
     const newReflection: Reflection = {
       id: refId,
       userId: uid,
       problemId: reflectionProblem.id,
-      timestamp: Date.now(),
+      timestamp: now,
       confidence: data.confidence,
       feltDifficulty: data.feltDifficulty,
       recognizedPatternImmediately: data.recognizedPatternImmediately,
       requiredHintsOrEditorial: data.requiredHintsOrEditorial,
       notes: data.notes,
-      aiAnalysis,
+      aiAnalysis: formattedAiAnalysis,
     };
 
-    if (currentUser) {
+    if (!isServerPersisted && currentUser) {
       await saveReflection(uid, newReflection);
     }
-    setReflections((prev) => [newReflection, ...prev]);
+    const updatedReflections = [newReflection, ...reflections.filter((r) => r.id !== refId)];
+    setReflections(updatedReflections);
 
     // Save Solving Record
     const newSolving: SolvingRecord = {
-      id: `solv-${Date.now()}`,
+      id: solvId,
       userId: uid,
       problemId: reflectionProblem.id,
-      completedAt: Date.now(),
+      completedAt: now,
       source: 'manual',
       reflectionId: refId,
     };
-    if (currentUser) {
+    if (!isServerPersisted && currentUser) {
       await saveSolvingRecord(uid, newSolving);
     }
-    setSolvingRecords((prev) => [newSolving, ...prev]);
+    const updatedSolvings = [newSolving, ...solvingRecords.filter((s) => s.id !== solvId)];
+    setSolvingRecords(updatedSolvings);
 
     // Update Revision Card with spaced repetition calculation
-    const existingRev = revisionCards.find((c) => c.problemId === reflectionProblem.id) || null;
     let outcome: ReviewOutcome = 'Good';
     if (data.confidence >= 4 && !data.requiredHintsOrEditorial) outcome = 'Easy';
     else if (data.confidence === 3) outcome = 'Good';
@@ -1045,7 +1197,7 @@ export default function App() {
     else outcome = 'Forgot';
 
     const nextCard = calculateNextRevision(existingRev, reflectionProblem.id, uid, outcome);
-    if (currentUser) {
+    if (!isServerPersisted && currentUser) {
       await saveRevisionCard(uid, nextCard);
     }
     setRevisionCards((prev) => [...prev.filter((c) => c.id !== nextCard.id), nextCard]);
@@ -1064,10 +1216,10 @@ export default function App() {
       dateKey: revDateKey,
       status: 'pending',
       isRevision: true,
-      addedAt: Date.now(),
+      addedAt: now,
     };
 
-    if (currentUser) {
+    if (!isServerPersisted && currentUser) {
       await saveDailyQueueItem(uid, revQueueItem);
     }
     setDailyQueue((prev) => {
@@ -1083,27 +1235,67 @@ export default function App() {
 
     // Update Learning Memory
     const existingMem = memories.find((m) => m.problemId === reflectionProblem.id);
+    let newMistake: MistakeEntry | null = null;
+    let updatedMistakes = mistakes;
+    if (data.requiredHintsOrEditorial || data.confidence <= 2) {
+      newMistake = {
+        id: mistakeId,
+        userId: uid,
+        patternId: reflectionProblem.dsaPatterns?.[0] || 'General',
+        problemId: reflectionProblem.id,
+        mistakeType: data.requiredHintsOrEditorial ? 'Misunderstood Concept' : 'Implementation Bug',
+        description: data.notes || 'Needed hints / struggled during solution execution.',
+        timestamp: now,
+      };
+      if (!isServerPersisted && currentUser) {
+        await saveMistake(uid, newMistake);
+      }
+      updatedMistakes = [
+        newMistake,
+        ...mistakes.filter((m) => {
+          if (m.id === mistakeId) return false;
+          if (m.problemId === reflectionProblem.id && m.description === newMistake!.description && Math.abs((m.timestamp || 0) - now) < 60000) return false;
+          return true;
+        }),
+      ];
+      setMistakes(updatedMistakes);
+    }
+
+    const prevMemMistakes = Array.isArray(existingMem?.mistakes) ? existingMem.mistakes : [];
+    const updatedMemMistakes = newMistake
+      ? [
+          newMistake,
+          ...prevMemMistakes.filter((m) => {
+            if (m.id === newMistake!.id) return false;
+            if (m.description === newMistake!.description && Math.abs((m.timestamp || 0) - now) < 60000) return false;
+            return true;
+          }),
+        ]
+      : prevMemMistakes;
+
+    const prevInsights = Array.isArray(existingMem?.keyInsights) ? existingMem.keyInsights : [];
+    const updatedInsights = data.notes && !prevInsights.some((ins) => ins.trim().toLowerCase() === data.notes.trim().toLowerCase())
+      ? [...prevInsights, data.notes]
+      : prevInsights;
+
     const newMem: LearningMemory = {
       problemId: reflectionProblem.id,
       userId: uid,
-      firstSolvedDate: existingMem ? existingMem.firstSolvedDate : Date.now(),
-      lastReviewedDate: Date.now(),
+      firstSolvedDate: existingMem ? existingMem.firstSolvedDate : now,
+      lastReviewedDate: now,
       reviewCount: existingMem ? existingMem.reviewCount + 1 : 1,
       confidenceHistory: [
-        ...(existingMem?.confidenceHistory || []),
-        { timestamp: Date.now(), score: data.confidence },
+        ...(existingMem?.confidenceHistory || []).filter((c) => Math.abs((c.timestamp || 0) - now) > 30000),
+        { timestamp: now, score: data.confidence },
       ],
       reflectionHistory: [
-        ...(existingMem?.reflectionHistory || []),
         newReflection,
+        ...(existingMem?.reflectionHistory || []).filter((r) => r.id !== refId && Math.abs((r.timestamp || 0) - now) > 30000),
       ],
-      mistakes: existingMem?.mistakes || [],
-      keyInsights: [
-        ...(existingMem?.keyInsights || []),
-        ...(data.notes ? [data.notes] : []),
-      ],
+      mistakes: updatedMemMistakes,
+      keyInsights: updatedInsights,
     };
-    if (currentUser) {
+    if (!isServerPersisted && currentUser) {
       await saveLearningMemory(uid, newMem);
     }
     const updatedMemories = [
@@ -1113,19 +1305,16 @@ export default function App() {
     setMemories(updatedMemories);
 
     // Smartly analyze and update Pattern Taxonomy across all past logs & patterns
-    const updatedReflections = [newReflection, ...reflections];
-    const updatedSolvings = [newSolving, ...solvingRecords];
-
     const updatedTaxonomy = computePatternTaxonomy({
       solvingRecords: updatedSolvings,
       reflections: updatedReflections,
       memories: updatedMemories,
-      mistakes,
+      mistakes: updatedMistakes,
       catalog,
     });
 
     setPatternMasteries(updatedTaxonomy);
-    if (currentUser) {
+    if (!isServerPersisted && currentUser) {
       for (const m of updatedTaxonomy) {
         await savePatternMastery(uid, m);
       }
@@ -1165,6 +1354,19 @@ export default function App() {
       await setUserGamification(uid, nextState);
     }
     setGamification(nextState);
+
+    // Broadcast to Chrome extension via window.postMessage
+    try {
+      window.postMessage(
+        {
+          type: 'OMEGA_LOG_ADDED',
+          log: logPayload,
+          todayCount: (serverResponse?.todayCount) || undefined,
+          stats: serverResponse?.stats || undefined,
+        },
+        '*'
+      );
+    } catch (e) {}
   };
 
   // Revision outcome review

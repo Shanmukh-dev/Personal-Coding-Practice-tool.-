@@ -50,6 +50,82 @@ function getTodayKey() {
   return `${year}-${month}-${day}`;
 }
 
+// Helper: Query authoritative database state from candidate server URLs
+async function fetchAuthoritativeCloudStats(appUrl, user, token, todayKey, tzOffset) {
+  const primaryUrl = normalizeAppUrl(appUrl);
+  const candidateUrls = [
+    primaryUrl,
+    'https://ais-dev-xe62wcz6ciunnsbrgansz7-15217695281.asia-east1.run.app',
+    'https://ais-pre-xe62wcz6ciunnsbrgansz7-15217695281.asia-east1.run.app',
+    'http://localhost:3000',
+    'http://127.0.0.1:3000',
+    'https://omega-dsa.ai.studio',
+  ];
+
+  try {
+    const detected = await detectOmegaTabUrl();
+    if (detected && !candidateUrls.includes(detected)) {
+      candidateUrls.unshift(detected);
+    }
+  } catch (e) {}
+
+  const uniqueUrls = Array.from(new Set(candidateUrls.map((u) => (u || '').replace(/\/+$/, '')))).filter(Boolean);
+
+  for (const targetUrl of uniqueUrls) {
+    try {
+      let statsResp = null;
+      if (token) {
+        // Dedicated secure endpoint with JWT authentication
+        statsResp = await fetch(
+          `${targetUrl}/api/extension/secure/data?todayKey=${encodeURIComponent(todayKey)}&tzOffset=${tzOffset}`,
+          {
+            headers: {
+              'Accept': 'application/json',
+              'Authorization': `Bearer ${token}`,
+              'x-today-date-key': todayKey,
+              'x-timezone-offset': String(tzOffset),
+            },
+          }
+        );
+      } else if (user && (user.uid || user.email)) {
+        // Fallback query endpoint
+        const queryParams = new URLSearchParams();
+        if (user.uid) queryParams.set('userId', user.uid);
+        if (user.email) queryParams.set('email', user.email);
+        queryParams.set('todayKey', todayKey);
+        queryParams.set('tzOffset', String(tzOffset));
+        statsResp = await fetch(`${targetUrl}/api/extension/user-stats?${queryParams.toString()}`, {
+          headers: {
+            'Accept': 'application/json',
+            'x-today-date-key': todayKey,
+            'x-timezone-offset': String(tzOffset),
+          },
+        });
+      }
+
+      if (statsResp && statsResp.ok) {
+        const cloudData = await statsResp.json();
+        if (cloudData && cloudData.success) {
+          const cloudStats = cloudData.stats || cloudData;
+          chrome.storage.local.set({ omega_app_url: targetUrl });
+          return {
+            isCloudSynced: true,
+            workingUrl: targetUrl,
+            cloudStats: cloudStats,
+            dailyQueue: cloudData.dailyQueue || [],
+            revisionsDue: cloudData.revisionsDue || [],
+            mistakes: cloudData.mistakes || [],
+          };
+        }
+      }
+    } catch (err) {
+      // Continue to next candidate URL
+    }
+  }
+
+  return { isCloudSynced: false, workingUrl: primaryUrl, cloudStats: null };
+}
+
 // Find open Omega tabs to auto-detect the web app URL if needed
 async function detectOmegaTabUrl() {
   try {
@@ -268,15 +344,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         'omega_last_stats_sync',
       ],
       async (res) => {
-        let appUrl = normalizeAppUrl(res.omega_app_url);
-        if (!res.omega_app_url || res.omega_app_url.includes('aistudio.google.com') || res.omega_app_url === 'https://ai.studio') {
-          appUrl = DEFAULT_FALLBACK_URL;
-          chrome.storage.local.set({ omega_app_url: DEFAULT_FALLBACK_URL });
-        }
-        appUrl = appUrl.replace(/\/+$/, '');
-
+        const user = res.omega_user || null;
+        const token = res.omega_token || null;
+        const isEnabled = res.omega_enabled !== undefined ? res.omega_enabled : true;
         const todayKey = getTodayKey();
         const tzOffset = new Date().getTimezoneOffset();
+
         let dailyCounts = { ...(res.omega_daily_counts || {}) };
         let logs = Array.isArray(res.omega_logs) ? res.omega_logs : [];
         let todayCount = typeof res.omega_today_count === 'number' ? res.omega_today_count : (dailyCounts[todayKey] || 0);
@@ -291,100 +364,73 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         let mistakes = [];
         let xp = 0;
         let level = 1;
-        const user = res.omega_user || null;
-        const token = res.omega_token || null;
-        const isEnabled = res.omega_enabled !== undefined ? res.omega_enabled : true;
+        let currentWorkingUrl = normalizeAppUrl(res.omega_app_url);
 
-        // Try to fetch latest live stats from Omega Cloud Server if user is connected
+        // Fetch live authoritative state directly from the server database
         if (token || (user && (user.uid || user.email))) {
-          try {
-            let statsResp;
-            if (token) {
-              // Dedicated secure endpoint with JWT authentication
-              statsResp = await fetch(`${appUrl}/api/extension/secure/data?todayKey=${encodeURIComponent(todayKey)}&tzOffset=${tzOffset}`, {
-                headers: {
-                  'Accept': 'application/json',
-                  'Authorization': `Bearer ${token}`,
-                  'x-today-date-key': todayKey,
-                  'x-timezone-offset': String(tzOffset),
-                },
-              });
-            } else {
-              // Fallback query
-              const queryParams = new URLSearchParams();
-              if (user.uid) queryParams.set('userId', user.uid);
-              if (user.email) queryParams.set('email', user.email);
-              queryParams.set('todayKey', todayKey);
-              queryParams.set('tzOffset', String(tzOffset));
-              statsResp = await fetch(`${appUrl}/api/extension/user-stats?${queryParams.toString()}`, {
-                headers: {
-                  'x-today-date-key': todayKey,
-                  'x-timezone-offset': String(tzOffset),
-                },
-              });
+          const fetchResult = await fetchAuthoritativeCloudStats(
+            res.omega_app_url,
+            user,
+            token,
+            todayKey,
+            tzOffset
+          );
+
+          if (fetchResult.isCloudSynced && fetchResult.cloudStats) {
+            isCloudSynced = true;
+            currentWorkingUrl = fetchResult.workingUrl;
+            lastSyncTime = Date.now();
+            const cs = fetchResult.cloudStats;
+
+            if (cs.dailyCounts && typeof cs.dailyCounts === 'object') {
+              dailyCounts = cs.dailyCounts;
+            }
+            if (typeof cs.todayCount === 'number') {
+              todayCount = cs.todayCount;
+            }
+            if (typeof cs.streak === 'number') {
+              streak = cs.streak;
+            }
+            if (typeof cs.dailyGoal === 'number' && cs.dailyGoal > 0) {
+              dailyGoal = cs.dailyGoal;
+            }
+            if (typeof cs.monthlySolved === 'number') {
+              monthlySolved = cs.monthlySolved;
+            }
+            if (typeof cs.activeDays === 'number') {
+              activeDays = cs.activeDays;
+            }
+            if (typeof cs.xp === 'number') {
+              xp = cs.xp;
+            }
+            if (typeof cs.level === 'number') {
+              level = cs.level;
+            }
+            if (Array.isArray(cs.recentLogs)) {
+              logs = cs.recentLogs;
+            }
+            if (Array.isArray(fetchResult.dailyQueue)) {
+              dailyQueue = fetchResult.dailyQueue;
+            }
+            if (Array.isArray(fetchResult.revisionsDue)) {
+              revisionsDue = fetchResult.revisionsDue;
+            }
+            if (Array.isArray(fetchResult.mistakes)) {
+              mistakes = fetchResult.mistakes;
             }
 
-            if (statsResp && statsResp.ok) {
-              const cloudData = await statsResp.json();
-              if (cloudData && cloudData.success) {
-                isCloudSynced = true;
-                lastSyncTime = Date.now();
-                const cloudStats = cloudData.stats || cloudData;
-
-                if (cloudStats.dailyCounts && typeof cloudStats.dailyCounts === 'object') {
-                  dailyCounts = cloudStats.dailyCounts;
-                }
-                if (typeof cloudStats.todayCount === 'number') {
-                  todayCount = cloudStats.todayCount;
-                }
-                if (typeof cloudStats.streak === 'number') {
-                  streak = cloudStats.streak;
-                }
-                if (typeof cloudStats.dailyGoal === 'number' && cloudStats.dailyGoal > 0) {
-                  dailyGoal = cloudStats.dailyGoal;
-                }
-                if (typeof cloudStats.monthlySolved === 'number') {
-                  monthlySolved = cloudStats.monthlySolved;
-                }
-                if (typeof cloudStats.activeDays === 'number') {
-                  activeDays = cloudStats.activeDays;
-                }
-                if (typeof cloudStats.xp === 'number') {
-                  xp = cloudStats.xp;
-                }
-                if (typeof cloudStats.level === 'number') {
-                  level = cloudStats.level;
-                }
-                if (Array.isArray(cloudStats.recentLogs)) {
-                  logs = cloudStats.recentLogs;
-                }
-                if (Array.isArray(cloudData.dailyQueue)) {
-                  dailyQueue = cloudData.dailyQueue;
-                }
-                if (Array.isArray(cloudData.revisionsDue)) {
-                  revisionsDue = cloudData.revisionsDue;
-                }
-                if (Array.isArray(cloudData.mistakes)) {
-                  mistakes = cloudData.mistakes;
-                }
-
-                // Cache fresh authoritative cloud database data locally
-                chrome.storage.local.set({
-                  omega_daily_counts: dailyCounts,
-                  omega_streak: streak,
-                  omega_today_count: todayCount,
-                  omega_daily_goal: dailyGoal,
-                  omega_logs: logs,
-                  omega_monthly_solved: monthlySolved,
-                  omega_active_days: activeDays,
-                  omega_last_stats_sync: lastSyncTime,
-                });
-              }
-            } else if (statsResp && statsResp.status === 401) {
-              console.warn('[Omega Extension] Token expired on status check.');
-            }
-          } catch (cloudErr) {
-            console.log('[Omega Extension] Fallback to local storage:', cloudErr.message);
+            // Persist fresh authoritative stats to storage
+            chrome.storage.local.set({
+              omega_daily_counts: dailyCounts,
+              omega_streak: streak,
+              omega_today_count: todayCount,
+              omega_daily_goal: dailyGoal,
+              omega_logs: logs,
+              omega_monthly_solved: monthlySolved,
+              omega_active_days: activeDays,
+              omega_last_stats_sync: lastSyncTime,
+              omega_app_url: currentWorkingUrl,
+            });
           }
         }
 
@@ -403,6 +449,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           if (mActive > 0) activeDays = mActive;
         }
 
+        updateBadgeState(isEnabled);
+
         sendResponse({
           enabled: isEnabled,
           todayCount: todayCount,
@@ -416,7 +464,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           mistakes,
           xp,
           level,
-          appUrl: appUrl || DEFAULT_FALLBACK_URL,
+          appUrl: currentWorkingUrl || DEFAULT_FALLBACK_URL,
           streak,
           user,
           token,
@@ -594,7 +642,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           if (user.email) newLog.userEmail = user.email;
         }
 
-        // Sync directly to Omega server with JWT token
+        // Post directly to Omega backend endpoint for database update
         const syncResult = await syncToServer(res.omega_app_url || DEFAULT_FALLBACK_URL, newLog, user, token);
         broadcastLogToOmegaTabs(newLog, user);
 
@@ -606,6 +654,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
           const updatePayload = {
             omega_today_count: confirmedTodayCount,
+            omega_last_stats_sync: Date.now(),
           };
           if (stats.dailyCounts) updatePayload.omega_daily_counts = stats.dailyCounts;
           if (typeof stats.streak === 'number') updatePayload.omega_streak = stats.streak;
@@ -616,17 +665,39 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
           chrome.storage.local.set(updatePayload, () => {
             updateBadgeState();
+
+            // Broadcast stats update to extension popup and pages
+            try {
+              chrome.runtime.sendMessage({
+                type: 'OMEGA_EXTENSION_STATS_UPDATED',
+                todayCount: confirmedTodayCount,
+                stats: {
+                  todayCount: confirmedTodayCount,
+                  dailyCounts: stats.dailyCounts || updatePayload.omega_daily_counts,
+                  streak: stats.streak || updatePayload.omega_streak,
+                  monthlySolved: stats.monthlySolved || updatePayload.omega_monthly_solved,
+                  activeDays: stats.activeDays || updatePayload.omega_active_days,
+                  recentLogs: stats.recentLogs || updatePayload.omega_logs,
+                  lastSyncTime: Date.now(),
+                  isCloudSynced: syncResult.dbSynced !== false,
+                  user: user,
+                },
+              }, () => {
+                if (chrome.runtime.lastError) { /* ignore */ }
+              });
+            } catch (e) {}
+
             sendResponse({
               success: true,
               todayCount: confirmedTodayCount,
-              dbSynced: true,
+              dbSynced: syncResult.dbSynced !== false,
               logId: syncResult.logId,
               problemId: syncResult.problemId,
               xpEarned: syncResult.xpEarned,
               nextReviewAt: syncResult.nextReviewAt,
               aiAnalysis: syncResult.aiAnalysis,
               stats: syncResult.stats,
-              message: syncResult.message || 'Practice log successfully stored in Omega database.',
+              message: syncResult.message || 'Practice log successfully stored in database.',
             });
           });
         } else if (syncResult && !syncResult.success && syncResult.error) {
@@ -639,10 +710,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           });
         } else {
           sendResponse({
-            success: true,
-            todayCount: 1,
-            dbSynced: false,
-            message: 'Recorded locally.',
+            success: false,
+            error: 'Failed to reach Omega database endpoint. Please verify connection.',
+            code: 'ENDPOINT_FAILED',
           });
         }
       }
@@ -769,10 +839,11 @@ async function syncToServer(appUrl, logData, user, token) {
   const primaryUrl = (appUrl || DEFAULT_FALLBACK_URL).replace(/\/+$/, '');
   const candidateUrls = [
     primaryUrl,
-    'https://omega-dsa.ai.studio',
     'https://ais-dev-xe62wcz6ciunnsbrgansz7-15217695281.asia-east1.run.app',
+    'https://ais-pre-xe62wcz6ciunnsbrgansz7-15217695281.asia-east1.run.app',
     'http://localhost:3000',
     'http://127.0.0.1:3000',
+    'https://omega-dsa.ai.studio',
   ];
 
   try {
@@ -825,6 +896,7 @@ async function syncToServer(appUrl, logData, user, token) {
               xpEarned: data.xpEarned,
               nextReviewAt: data.nextReviewAt,
               aiAnalysis: data.aiAnalysis,
+              todayCount: data.todayCount || data.stats?.todayCount,
               stats: data.stats,
               message: data.message,
             };
@@ -857,7 +929,9 @@ async function syncToServer(appUrl, logData, user, token) {
             success: true,
             dbSynced: true,
             logId: data?.logId,
-            message: data?.message || 'Synced to Omega server cache.',
+            todayCount: data?.todayCount || data?.stats?.todayCount,
+            stats: data?.stats,
+            message: data?.message || 'Synced to Omega server database.',
           };
         }
       }
@@ -867,13 +941,13 @@ async function syncToServer(appUrl, logData, user, token) {
     }
   }
 
-  // 3. If offline or servers are unreachable, log is already safely stored in extension local storage
-  console.log('[Omega Extension] All server endpoints offline; practice log persisted safely in extension storage.');
+  // 3. If offline or servers are unreachable, report endpoint error
+  console.warn('[Omega Extension] All server endpoints offline/unreachable for practice logging.');
   return {
-    success: true,
+    success: false,
     dbSynced: false,
     offline: true,
-    message: 'Saved locally in extension storage. Will sync when server is reachable.',
+    error: lastError?.message || 'Could not connect to Omega backend. Please check network.',
   };
 }
 

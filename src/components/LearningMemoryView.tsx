@@ -102,7 +102,44 @@ export const LearningMemoryView: React.FC<LearningMemoryViewProps> = ({ memories
       return 0;
     });
 
-    return list;
+    // Deduplicate each memory's internal arrays
+    const sanitizedList = list.map((mem) => {
+      const refHist = Array.isArray(mem.reflectionHistory) ? mem.reflectionHistory : [];
+      const seenRefTimes = new Set<number>();
+      const cleanRefHist = refHist.filter((r) => {
+        const tw = Math.floor((r.timestamp || 0) / 30000);
+        if (seenRefTimes.has(tw)) return false;
+        seenRefTimes.add(tw);
+        return true;
+      });
+
+      const memMist = Array.isArray(mem.mistakes) ? mem.mistakes : [];
+      const seenMist = new Set<string>();
+      const cleanMist = memMist.filter((m) => {
+        const tw = Math.floor(((m as any).timestamp || (m as any).occurredAt || 0) / 60000);
+        const k = `${(m.description || '').trim().toLowerCase()}_${tw}`;
+        if (seenMist.has(k)) return false;
+        seenMist.add(k);
+        return true;
+      });
+
+      const seenInsights = new Set<string>();
+      const cleanInsights = (Array.isArray(mem.keyInsights) ? mem.keyInsights : []).filter((ins) => {
+        const norm = (ins || '').trim().toLowerCase();
+        if (!norm || seenInsights.has(norm)) return false;
+        seenInsights.add(norm);
+        return true;
+      });
+
+      return {
+        ...mem,
+        reflectionHistory: cleanRefHist,
+        mistakes: cleanMist,
+        keyInsights: cleanInsights,
+      };
+    });
+
+    return sanitizedList;
   }, [memories, catalog, searchQuery, sortBy, selectedDifficulty]);
 
   if (memories.length === 0) {

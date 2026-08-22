@@ -403,7 +403,11 @@ document.addEventListener('DOMContentLoaded', () => {
       setSyncingState(true);
 
       chrome.runtime.sendMessage({ type: 'SYNC_USER_STATS' }, (res) => {
-        loadPopupData(false);
+        if (res) {
+          renderPopupWithData(res);
+        } else {
+          loadPopupData(false);
+        }
         setTimeout(() => {
           setSyncingState(false);
         }, 400);
@@ -411,7 +415,7 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  // 5. Watch for storage changes (auto-update if web app pairs in another tab!)
+  // 5. Watch for storage changes (auto-update if web app pairs in another tab or logs are updated)
   chrome.storage.onChanged.addListener((changes, area) => {
     if (area === 'local') {
       if (changes.omega_user) {
@@ -426,11 +430,66 @@ document.addEventListener('DOMContentLoaded', () => {
         if (serverUrlInput) serverUrlInput.value = currentAppUrl;
         testServerConnectivity(currentAppUrl);
       }
+      if (changes.omega_today_count || changes.omega_daily_counts || changes.omega_streak || changes.omega_last_stats_sync) {
+        loadPopupData(false);
+      }
+    }
+  });
+
+  // Listen for broadcast messages from background script
+  chrome.runtime.onMessage.addListener((msg) => {
+    if (msg && (msg.type === 'OMEGA_EXTENSION_STATS_UPDATED' || msg.type === 'OMEGA_LOG_RECORDED')) {
+      if (msg.stats) {
+        renderPopupWithData(msg.stats);
+      } else {
+        loadPopupData(false);
+      }
     }
   });
 
   // Load initial status (with initial resolving view)
   loadPopupData(true);
+
+  // Render popup UI with retrieved authoritative stats payload
+  function renderPopupWithData(res) {
+    if (!res) return;
+
+    currentAppUrl = normalizeAppUrl(res.appUrl || currentAppUrl || CLOUD_APP_URL);
+    if (serverUrlInput) serverUrlInput.value = currentAppUrl;
+    testServerConnectivity(currentAppUrl);
+
+    // Hide initial loading screen
+    if (initialLoadingView) {
+      initialLoadingView.style.display = 'none';
+    }
+
+    // Update User Auth State
+    const isAuthenticated = res.user && res.user.uid && res.user.uid !== 'guest';
+    renderAuthState(isAuthenticated ? res.user : null);
+
+    if (isAuthenticated) {
+      // Update On/Off Toggle
+      const isEnabled = res.enabled !== false;
+      if (toggleInput) {
+        toggleInput.checked = isEnabled;
+        updateToggleUI(isEnabled);
+      }
+
+      // Update Today's Solved Count
+      const count = typeof res.todayCount === 'number' ? res.todayCount : 0;
+      if (todayCountNum) todayCountNum.textContent = count;
+
+      // Streak
+      const streak = typeof res.streak === 'number' ? res.streak : (count > 0 ? 1 : 0);
+      if (streakCount) streakCount.textContent = `${streak}d streak`;
+
+      // Update Sync Status UI in Popup
+      updateSyncStatusUI(res.lastSyncTime || Date.now(), res.isCloudSynced !== false);
+
+      // Render Current Month Heatmap
+      renderCurrentMonthHeatmap(res.dailyCounts || {});
+    }
+  }
 
   function loadPopupData(isInitial = false) {
     if (isInitial && initialLoadingView) {
@@ -446,42 +505,7 @@ document.addEventListener('DOMContentLoaded', () => {
         renderAuthState(null);
         return;
       }
-
-      currentAppUrl = normalizeAppUrl(res.appUrl || CLOUD_APP_URL);
-      if (serverUrlInput) serverUrlInput.value = currentAppUrl;
-      testServerConnectivity(currentAppUrl);
-
-      // Hide initial loading screen
-      if (initialLoadingView) {
-        initialLoadingView.style.display = 'none';
-      }
-
-      // Update User Auth State
-      const isAuthenticated = res.user && res.user.uid && res.user.uid !== 'guest';
-      renderAuthState(isAuthenticated ? res.user : null);
-
-      if (isAuthenticated) {
-        // Update On/Off Toggle
-        const isEnabled = res.enabled !== false;
-        if (toggleInput) {
-          toggleInput.checked = isEnabled;
-          updateToggleUI(isEnabled);
-        }
-
-        // Update Today's Solved Count
-        const count = res.todayCount || 0;
-        if (todayCountNum) todayCountNum.textContent = count;
-
-        // Streak
-        const streak = res.streak || (count > 0 ? 1 : 0);
-        if (streakCount) streakCount.textContent = `${streak}d streak`;
-
-        // Update Sync Status UI in Popup
-        updateSyncStatusUI(res.lastSyncTime, res.isCloudSynced !== false);
-
-        // Render Current Month Heatmap
-        renderCurrentMonthHeatmap(res.dailyCounts || {});
-      }
+      renderPopupWithData(res);
     });
   }
 

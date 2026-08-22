@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { X, Star, Sparkles, Check, History, TrendingUp } from 'lucide-react';
+import { X, Star, Sparkles, Check, History, TrendingUp, Loader2, AlertCircle } from 'lucide-react';
 import { Problem, Difficulty, Reflection } from '../types';
 
 interface ReflectionModalProps {
@@ -40,6 +40,7 @@ export const ReflectionModal: React.FC<ReflectionModalProps> = ({
   const [interviewReadiness, setInterviewReadiness] = useState<string>('Moderate Progress');
   
   const [submitting, setSubmitting] = useState<boolean>(false);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   // Get latest previous reflection for this problem if any
   const sortedPrevious = [...previousReflections].sort((a, b) => b.timestamp - a.timestamp);
@@ -55,6 +56,8 @@ export const ReflectionModal: React.FC<ReflectionModalProps> = ({
       setSpeedImprovement('Slightly Faster');
       setAvoidedMistakes('Independent Now');
       setInterviewReadiness('Moderate Progress');
+      setSubmitting(false);
+      setErrorMsg(null);
     }
   }, [isOpen, problem?.id]);
 
@@ -63,6 +66,8 @@ export const ReflectionModal: React.FC<ReflectionModalProps> = ({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setSubmitting(true);
+    setErrorMsg(null);
+
     try {
       await onSubmitReflection({
         confidence,
@@ -79,9 +84,9 @@ export const ReflectionModal: React.FC<ReflectionModalProps> = ({
           : undefined,
       });
       onClose();
-    } catch (err) {
-      console.error(err);
-    } finally {
+    } catch (err: any) {
+      console.error('Reflection submission error:', err);
+      setErrorMsg(err?.message || 'Failed to sync reflection with server. Please try again.');
       setSubmitting(false);
     }
   };
@@ -103,11 +108,20 @@ export const ReflectionModal: React.FC<ReflectionModalProps> = ({
           </div>
           <button
             onClick={onClose}
-            className="absolute top-4 right-4 text-zinc-400 hover:text-zinc-200 transition-colors p-1 rounded-lg hover:bg-zinc-800"
+            disabled={submitting}
+            className="absolute top-4 right-4 text-zinc-400 hover:text-zinc-200 transition-colors p-1 rounded-lg hover:bg-zinc-800 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
+
+        {/* Error alert banner */}
+        {errorMsg && (
+          <div className="p-3 bg-red-500/10 border border-red-500/30 rounded-xl flex items-center gap-2.5 text-xs text-red-300">
+            <AlertCircle className="w-4 h-4 text-red-400 shrink-0" />
+            <span className="flex-1">{errorMsg}</span>
+          </div>
+        )}
 
         {/* Form Body (Scrollable container so modal stays fixed max-h-[90vh]) */}
         <form onSubmit={handleSubmit} className="overflow-y-auto pr-1 space-y-4 flex-1 custom-scrollbar">
@@ -156,6 +170,7 @@ export const ReflectionModal: React.FC<ReflectionModalProps> = ({
                       <button
                         key={opt}
                         type="button"
+                        disabled={submitting}
                         onClick={() => setSpeedImprovement(opt)}
                         className={`py-1.5 px-2 rounded-lg text-[11px] font-semibold border transition-all ${
                           speedImprovement === opt
@@ -178,6 +193,7 @@ export const ReflectionModal: React.FC<ReflectionModalProps> = ({
                       <button
                         key={opt}
                         type="button"
+                        disabled={submitting}
                         onClick={() => setAvoidedMistakes(opt)}
                         className={`py-1.5 px-2 rounded-lg text-[11px] font-semibold border transition-all ${
                           avoidedMistakes === opt
@@ -200,6 +216,7 @@ export const ReflectionModal: React.FC<ReflectionModalProps> = ({
                       <button
                         key={opt}
                         type="button"
+                        disabled={submitting}
                         onClick={() => setInterviewReadiness(opt)}
                         className={`py-1.5 px-2 rounded-lg text-[11px] font-semibold border transition-all ${
                           interviewReadiness === opt
@@ -226,6 +243,7 @@ export const ReflectionModal: React.FC<ReflectionModalProps> = ({
                 <button
                   key={star}
                   type="button"
+                  disabled={submitting}
                   onClick={() => setConfidence(star)}
                   className={`p-2 rounded-lg border transition-all ${
                     confidence >= star
@@ -260,6 +278,7 @@ export const ReflectionModal: React.FC<ReflectionModalProps> = ({
                 <button
                   key={diff}
                   type="button"
+                  disabled={submitting}
                   onClick={() => setFeltDifficulty(diff)}
                   className={`py-2 px-3 rounded-lg border text-xs font-semibold transition-all ${
                     feltDifficulty === diff
@@ -282,6 +301,7 @@ export const ReflectionModal: React.FC<ReflectionModalProps> = ({
               <div className="flex gap-2">
                 <button
                   type="button"
+                  disabled={submitting}
                   onClick={() => setRecognizedPattern(true)}
                   className={`flex-1 py-1.5 rounded text-xs font-semibold border ${
                     recognizedPattern
@@ -293,6 +313,7 @@ export const ReflectionModal: React.FC<ReflectionModalProps> = ({
                 </button>
                 <button
                   type="button"
+                  disabled={submitting}
                   onClick={() => setRecognizedPattern(false)}
                   className={`flex-1 py-1.5 rounded text-xs font-semibold border ${
                     !recognizedPattern
@@ -312,6 +333,7 @@ export const ReflectionModal: React.FC<ReflectionModalProps> = ({
               <div className="flex gap-2">
                 <button
                   type="button"
+                  disabled={submitting}
                   onClick={() => setRequiredHints(true)}
                   className={`flex-1 py-1.5 rounded text-xs font-semibold border ${
                     requiredHints
@@ -323,6 +345,7 @@ export const ReflectionModal: React.FC<ReflectionModalProps> = ({
                 </button>
                 <button
                   type="button"
+                  disabled={submitting}
                   onClick={() => setRequiredHints(false)}
                   className={`flex-1 py-1.5 rounded text-xs font-semibold border ${
                     !requiredHints
@@ -343,24 +366,35 @@ export const ReflectionModal: React.FC<ReflectionModalProps> = ({
             </label>
             <textarea
               rows={3}
+              disabled={submitting}
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
               placeholder="e.g. Watch out for off-by-one boundary check when low > high..."
-              className="w-full bg-zinc-950 border border-zinc-800 rounded-lg p-3 text-xs text-zinc-100 placeholder-zinc-600 focus:outline-none focus:border-slate-300 resize-none max-h-28"
+              className="w-full bg-zinc-950 border border-zinc-800 rounded-lg p-3 text-xs text-zinc-100 placeholder-zinc-600 focus:outline-none focus:border-slate-300 resize-none max-h-28 disabled:opacity-60"
             />
           </div>
 
           <button
             type="submit"
             disabled={submitting}
-            className="w-full py-2.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-zinc-950 font-semibold text-xs flex items-center justify-center gap-2 transition-all shadow-md shrink-0"
+            className="w-full py-2.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-zinc-950 font-semibold text-xs flex items-center justify-center gap-2 transition-all shadow-md shrink-0 disabled:opacity-75 disabled:cursor-not-allowed"
           >
-            <Check className="w-4 h-4" />
-            <span>{submitting ? 'Analyzing & Saving Log...' : 'Save Reflection Log'}</span>
+            {submitting ? (
+              <>
+                <Loader2 className="w-4 h-4 animate-spin text-zinc-950" />
+                <span>Saving & Syncing to Cloud...</span>
+              </>
+            ) : (
+              <>
+                <Check className="w-4 h-4" />
+                <span>Save Reflection Log</span>
+              </>
+            )}
           </button>
         </form>
       </div>
     </div>
   );
 };
+
 

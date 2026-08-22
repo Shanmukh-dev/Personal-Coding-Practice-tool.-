@@ -1012,10 +1012,13 @@ app.post('/api/extension/secure/log', authenticateExtensionJwt, async (req, res)
     const timeSpent = rawLog.timeSpent || '15m';
     const now = Date.now();
 
-    const refId = `ref-${now}-${Math.random().toString(36).substring(2, 7)}`;
-    const solvId = `solv-${now}-${Math.random().toString(36).substring(2, 7)}`;
+    // Generate deterministic IDs based on incoming log ID or problem+timestamp to prevent duplicate document creations
+    const incomingBaseId = rawLog.id || rawLog.logId || `ext-${problemId}-${Math.floor(now / 2000)}`;
+    const cleanBaseId = String(incomingBaseId).replace(/^(ref-|solv-|mist-|ext-)/, '');
+    const refId = `ref-${cleanBaseId}`;
+    const solvId = `solv-${cleanBaseId}`;
 
-    console.log(`[Omega Server] Processing secure practice log for user ${uid} (${authUser.email || 'no-email'}): "${problemTitle}" (Canonical ID: ${problemId})`);
+    console.log(`[Omega Server] Processing secure practice log for user ${uid} (${authUser.email || 'no-email'}): "${problemTitle}" (Canonical ID: ${problemId}, Ref ID: ${refId})`);
 
     // 1. Run AI analysis if available or synthesize smart feedback
     let aiAnalysis = '';
@@ -1185,7 +1188,7 @@ Provide a concise 2-sentence feedback: 1 sentence diagnosing the key algorithmic
     // 7. Update Problem Learning Memory (Permanent Knowledge Memory Vault)
     let loggedMistakeEntry: any = null;
     if (requiredHints || confidence <= 2) {
-      const mistakeId = `mist-${now}-${Math.random().toString(36).substring(2, 6)}`;
+      const mistakeId = `mist-${cleanBaseId}`;
       loggedMistakeEntry = {
         id: mistakeId,
         userId: uid,
@@ -1210,25 +1213,37 @@ Provide a concise 2-sentence feedback: 1 sentence diagnosing the key algorithmic
       const prevMem = memSnap.exists() ? (memSnap.data() as any) : null;
       
       const prevConfHistory = Array.isArray(prevMem?.confidenceHistory) ? prevMem.confidenceHistory : [];
+      // Deduplicate confidence history within 30 seconds
       const updatedConfHistory = [
-        ...prevConfHistory,
+        ...prevConfHistory.filter((c: any) => Math.abs((c.timestamp || 0) - now) > 30000),
         { timestamp: now, score: confidence },
       ];
 
       const prevReflectionHistory = Array.isArray(prevMem?.reflectionHistory) ? prevMem.reflectionHistory : [];
       const updatedReflectionHistory = [
         reflectionDoc,
-        ...prevReflectionHistory.filter((r: any) => r.id !== refId),
+        ...prevReflectionHistory.filter((r: any) => {
+          if (r.id === refId) return false;
+          if (r.timestamp && Math.abs(r.timestamp - now) < 30000 && r.problemId === problemId) return false;
+          return true;
+        }),
       ];
 
       const prevInsights = Array.isArray(prevMem?.keyInsights) ? prevMem.keyInsights : [];
-      const updatedKeyInsights = notes && !prevInsights.includes(notes)
+      const updatedKeyInsights = notes && !prevInsights.some((i: string) => i.trim().toLowerCase() === notes.trim().toLowerCase())
         ? [...prevInsights, notes]
         : prevInsights;
 
       const prevMistakes = Array.isArray(prevMem?.mistakes) ? prevMem.mistakes : [];
       const updatedMistakes = loggedMistakeEntry
-        ? [loggedMistakeEntry, ...prevMistakes.filter((m: any) => m.id !== loggedMistakeEntry.id)]
+        ? [
+            loggedMistakeEntry,
+            ...prevMistakes.filter((m: any) => {
+              if (m.id === loggedMistakeEntry.id) return false;
+              if (m.problemId === problemId && m.description === loggedMistakeEntry.description && Math.abs((m.timestamp || m.occurredAt || 0) - now) < 60000) return false;
+              return true;
+            }),
+          ]
         : prevMistakes;
 
       const updatedLearningMemory = {
@@ -1291,7 +1306,10 @@ Provide a concise 2-sentence feedback: 1 sentence diagnosing the key algorithmic
       id: refId,
       userId: uid,
       userEmail: authUser.email || undefined,
-      log: reflectionDoc,
+      log: {
+        ...reflectionDoc,
+        rawLogId: rawLog.id || incomingBaseId,
+      },
       timestamp: now,
     });
     if (extensionLogsHistory.length > 200) extensionLogsHistory.pop();

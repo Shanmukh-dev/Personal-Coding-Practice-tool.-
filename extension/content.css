@@ -511,6 +511,29 @@
   transform: translateY(0) !important;
 }
 
+.omega-spinner {
+  width: 16px !important;
+  height: 16px !important;
+  border: 2px solid rgba(0, 0, 0, 0.25) !important;
+  border-top-color: #09090b !important;
+  border-radius: 50% !important;
+  animation: omega-spin 0.7s linear infinite !important;
+  display: inline-block !important;
+  flex-shrink: 0 !important;
+}
+
+@keyframes omega-spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+.omega-submit-btn:disabled {
+  opacity: 0.75 !important;
+  cursor: not-allowed !important;
+  transform: none !important;
+  box-shadow: none !important;
+}
+
 .omega-notice-text {
   font-size: 10.5px !important;
   color: #71717a !important;
